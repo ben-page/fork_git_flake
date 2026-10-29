@@ -13,15 +13,20 @@
 
 # Make git.exe's standard handles ours. fds that Wine hands out without close-on-exec are inherited;
 # the others are reopened through /proc from git.exe, which waits for us.
+fds=""
 reopen() {
   local target=$1 fd=$2 mode=$3
-  [ "$fd" -ge 0 ] || return 0
-  if { true >&"$fd"; } 2>/dev/null; then
+  if [ "$fd" -lt 0 ]; then
+    fds+=" $target:none"
+  elif { true >&"$fd"; } 2>/dev/null; then
     eval "exec $target$mode&$fd $fd>&-"
+    fds+=" $target:$fd"
   elif [ "$mode" = '<' ]; then
     eval "exec $target<\"/proc/$PPID/fd/$fd\""
+    fds+=" $target:$fd(proc)"
   else
     eval "exec $target>>\"/proc/$PPID/fd/$fd\""
+    fds+=" $target:$fd(proc)"
   fi
 }
 reopen 0 "$1" '<'
@@ -77,7 +82,7 @@ done
 shift
 
 if [ -n "${FORK_GIT_TRACE:-}" ]; then
-  { printf '%s %s:' "$(date +%T.%3N)" "$PWD"; printf ' [%s]' "$@"; printf '\n  env:'; printf ' %s' "${vars[@]}"; printf '\n'; } >> "$FORK_GIT_TRACE"
+  { printf '%s %s:' "$(date +%T.%3N)" "$PWD"; printf ' [%s]' "$@"; printf '\n  fds:%s\n  env:' "$fds"; printf ' %s' "${vars[@]}"; printf '\n'; } >> "$FORK_GIT_TRACE"
 fi
 
 # The git subcommand, after the global options.

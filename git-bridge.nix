@@ -5,14 +5,14 @@ let
   mingw = pkgsCross.mingwW64;
 in
 {
-  # Linked statically, so it needs nothing but kernel32 and msvcrt from Wine.
+  # Linked statically, so it needs nothing but kernel32, msvcrt and ws2_32 from Wine.
   exe = mingw.stdenv.mkDerivation {
     name = "fork-git-bridge-exe";
     src = ./git-bridge/git.c;
     dontUnpack = true;
     buildInputs = [ mingw.windows.mcfgthreads ];
     buildPhase = ''
-      $CC -O2 -Wall -Werror -municode -static -o git.exe $src
+      $CC -O2 -Wall -Werror -municode -static -o git.exe $src -lws2_32
     '';
     installPhase = ''
       install -D -m 644 git.exe $out/git.exe
