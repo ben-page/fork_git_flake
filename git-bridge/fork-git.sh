@@ -34,15 +34,18 @@ reopen 1 "$2" '>'
 reopen 2 "$3" '>'
 shift 3
 
+# A command that runs a Windows program: "C:\...\x.exe" or /unix/path/x.exe, maybe quoted, maybe with
+# arguments.
+is_windows_program() {
+  [[ $1 =~ ^\"?[^\"]*\.[Ee][Xx][Ee](\"|[[:space:]]|$) ]]
+}
+
 # Wrap a Windows program Fork hands git (its askpass and editors) in a script that runs it on Wine,
 # converting file arguments to Windows paths. Prints the wrapper's path.
 windows_helper() {
   local command=$1 exe rest wrapper
-  if [[ $command == \"* ]]; then
-    exe=${command#\"}; exe=${exe%%\"*}; rest=${command#\""$exe"\"}
-  else
-    exe=${command%% *}; rest=${command#"$exe"}
-  fi
+  [[ $command =~ ^\"?([^\"]*\.[Ee][Xx][Ee])\"?(.*)$ ]]
+  exe=${BASH_REMATCH[1]} rest=${BASH_REMATCH[2]}
   wrapper="$FORK_GIT_HELPERS/$(printf '%s' "$command" | sha1sum | cut -c1-16)"
   if [ ! -x "$wrapper" ]; then
     mkdir -p "$FORK_GIT_HELPERS"
@@ -60,7 +63,7 @@ windows_helper() {
   printf '%s' "$wrapper"
 }
 
-is_windows_command() {
+is_windows_path() {
   [[ $1 =~ ^\"?[A-Za-z]:[\\/] ]]
 }
 
@@ -72,29 +75,35 @@ while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
     # its credential manager); the user's /etc/gitconfig applies instead.
     GIT_CONFIG_SYSTEM) ;;
     GIT_ASKPASS|SSH_ASKPASS|GIT_EDITOR|GIT_SEQUENCE_EDITOR)
-      if is_windows_command "$value"; then vars+=("$name=$(windows_helper "$value")"); else vars+=("$1"); fi ;;
+      if is_windows_program "$value"; then vars+=("$name=$(windows_helper "$value")"); else vars+=("$1"); fi ;;
     # Any other Windows path for git (GIT_SSH, ...) would point Linux git at a Windows program.
-    GIT_*) is_windows_command "$value" || vars+=("$1") ;;
+    GIT_*) is_windows_path "$value" || vars+=("$1") ;;
     *) vars+=("$1") ;;
   esac
   shift
 done
 shift
 
+# Find the git subcommand after the global options. Fork passes its rebase editor among them as
+# configuration (-c sequence.editor=..., -c core.editor=...); wrap Windows programs there too.
+subcommand="" args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -c)
+      [ "$#" -gt 1 ] || break
+      if is_windows_program "${2#*=}"; then args+=(-c "${2%%=*}=$(windows_helper "${2#*=}")"); else args+=(-c "$2"); fi
+      shift 2 ;;
+    -C|--git-dir|--work-tree|--namespace|--exec-path|--config-env)
+      args+=("$1"); shift; [ "$#" -gt 0 ] && { args+=("$1"); shift; } ;;
+    -*) args+=("$1"); shift ;;
+    *) subcommand=$1; break ;;
+  esac
+done
+set -- "${args[@]}" "$@"
+
 if [ -n "${FORK_GIT_TRACE:-}" ]; then
   { printf '%s %s:' "$(date +%T.%3N)" "$PWD"; printf ' [%s]' "$@"; printf '\n  fds:%s\n  env:' "$fds"; printf ' %s' "${vars[@]}"; printf '\n'; } >> "$FORK_GIT_TRACE"
 fi
-
-# The git subcommand, after the global options.
-subcommand=""
-for ((i = 1; i <= $#; i++)); do
-  arg=${!i}
-  case "$arg" in
-    -c|-C|--git-dir|--work-tree|--namespace|--exec-path|--config-env) i=$((i + 1)) ;;
-    -*) ;;
-    *) subcommand=$arg; break ;;
-  esac
-done
 
 # Fork expects Windows paths where git prints absolute paths; "/" is Wine's drive Z:.
 to_windows=""
