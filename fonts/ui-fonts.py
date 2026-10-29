@@ -30,7 +30,7 @@ from pathlib import Path
 from fontTools.ttLib import TTCollection, TTFont
 from fontTools.ttLib.tables import ttProgram
 
-SCALE = 0.95
+SCALE = 0.92
 
 
 def rename(font, old, new, postscript_new):
