@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Patches are applied byte for byte; never convert their line endings.
+*.patch -text
