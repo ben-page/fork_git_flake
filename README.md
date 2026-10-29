@@ -49,7 +49,7 @@ paths a few commands print back to Windows paths.
 ## Known problems
 
 * WPF renders in software (see below); fine for a git client.
-* Not tested yet: license activation, notifications, multiple monitors.
+* Not tested yet: notifications, multiple monitors.
 
 ## What the launcher fixes
 
