@@ -1,0 +1,57 @@
+From 877cd68d3d2feab2e8bc10f9fe8851e6150d5ab6 Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 15:35:24 -0500
+Subject: [PATCH 4/4] aero.msstyles: Name the color scheme NormalColor, like
+ Windows.
+
+WPF builds the resource name of its theme dictionary from the theme and
+color names that GetCurrentThemeName() returns: "themes/aero2.normalcolor"
+with Aero on Windows 8 and later. With "Blue" it found no dictionary and
+fell back to its Classic theme, so WPF applications drew controls the
+application does not restyle in Windows Classic colors (for example
+black text in the submenu headers of a dark context menu).
+---
+ dlls/aero.msstyles/aero.rc  | 2 +-
+ dlls/uxtheme/tests/system.c | 2 +-
+ loader/wine.inf.in          | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/aero.msstyles/aero.rc b/dlls/aero.msstyles/aero.rc
+index 851d1d3..e0c27d1 100644
+--- a/dlls/aero.msstyles/aero.rc
++++ b/dlls/aero.msstyles/aero.rc
+@@ -54,7 +54,7 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+ /* Theme color names */
+ 1 COLORNAMES
+ {
+-"Blue\0"
++"NormalColor\0"
+ "\0"
+ }
+ 
+diff --git a/dlls/uxtheme/tests/system.c b/dlls/uxtheme/tests/system.c
+index b729400..1a54413 100644
+--- a/dlls/uxtheme/tests/system.c
++++ b/dlls/uxtheme/tests/system.c
+@@ -875,7 +875,7 @@ static void test_GetCurrentThemeName(void)
+         p = wcsrchr(currentTheme, '\\');
+         ok(p && !wcsicmp(p+1, L"aero.msstyles"), "got %s\n", debugstr_w(currentTheme));
+         /* WPF builds the name of its theme dictionary from these ("themes/aero2.normalcolor"). */
+-        todo_wine ok(!wcscmp(currentColor, L"NormalColor"), "got %s\n", debugstr_w(currentColor));
++        ok(!wcscmp(currentColor, L"NormalColor"), "got %s\n", debugstr_w(currentColor));
+         ok(!wcscmp(currentSize, L"NormalSize"), "got %s\n", debugstr_w(currentSize));
+     }
+     else
+diff --git a/loader/wine.inf.in b/loader/wine.inf.in
+index c120aef..d80aecb 100644
+--- a/loader/wine.inf.in
++++ b/loader/wine.inf.in
+@@ -1030,7 +1030,7 @@ ErrorControl=1
+ [ThemeManager]
+ HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","ThemeActive",2,"1"
+ HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","DllName",2,"%10%\resources\themes\aero\aero.msstyles"
+-HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","ColorName",2,"Blue"
++HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","ColorName",2,"NormalColor"
+ HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","SizeName",2,"NormalSize"
+ 
+ [WinmgmtService]

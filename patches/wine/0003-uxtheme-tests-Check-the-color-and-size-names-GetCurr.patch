@@ -1,0 +1,26 @@
+From de3643391f26a2b959b29fcecbe871150c40cd7b Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 15:34:42 -0500
+Subject: [PATCH 3/4] uxtheme/tests: Check the color and size names
+ GetCurrentThemeName() returns for Aero.
+
+WPF builds the resource name of its theme dictionary from the theme and
+color names, "themes/aero2.normalcolor" with Aero on Windows 8 and later.
+---
+ dlls/uxtheme/tests/system.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/dlls/uxtheme/tests/system.c b/dlls/uxtheme/tests/system.c
+index fda57bb..b729400 100644
+--- a/dlls/uxtheme/tests/system.c
++++ b/dlls/uxtheme/tests/system.c
+@@ -874,6 +874,9 @@ static void test_GetCurrentThemeName(void)
+         ok( hRes == S_OK, "Expected S_OK, got 0x%08lx\n", hRes);
+         p = wcsrchr(currentTheme, '\\');
+         ok(p && !wcsicmp(p+1, L"aero.msstyles"), "got %s\n", debugstr_w(currentTheme));
++        /* WPF builds the name of its theme dictionary from these ("themes/aero2.normalcolor"). */
++        todo_wine ok(!wcscmp(currentColor, L"NormalColor"), "got %s\n", debugstr_w(currentColor));
++        ok(!wcscmp(currentSize, L"NormalSize"), "got %s\n", debugstr_w(currentSize));
+     }
+     else
+         ok( hRes == E_PROP_ID_UNSUPPORTED, "Expected E_PROP_ID_UNSUPPORTED, got 0x%08lx\n", hRes);

@@ -1,6 +1,7 @@
 # .NET Framework 4.8's offline installer, plus the mscoree.dll shim and its message DLL from the
 # .NET 4.0 installer. The 4.8 installer leaves the shim to Windows, and Wine's own mscoree loads
-# Wine Mono, not Microsoft's runtime.
+# Wine Mono, not Microsoft's runtime. Also WPF's Aero2 theme (PresentationFramework.Aero2.dll),
+# which the 4.8 installer skips on Windows 7, from the Windows 10 package inside it.
 { runCommand, fetchurl, _7zz }:
 
 let
@@ -22,4 +23,9 @@ runCommand "fork-dotnet48" { nativeBuildInputs = [ _7zz ]; } ''
   install -D -m 644 core/_003_mscoree_dll_x86 $out/i386/mscoree.dll
   install -D -m 644 core/_017_mscorees_dll_x86 $out/i386/mscorees.dll
   ln -s ${ndp48} $out/ndp48-x86-x64-allos-enu.exe
+
+  7zz x -bso0 -ondp48 ${ndp48} x64-Windows10.0-KB4486153-x64.cab
+  7zz x -bso0 -okb ndp48/x64-Windows10.0-KB4486153-x64.cab 'msil_presentationframework.aero2_31bf3856ad364e35_*'
+  install -m 644 kb/msil_presentationframework.aero2_31bf3856ad364e35_*/presentationframework.aero2.dll \
+    $out/PresentationFramework.Aero2.dll
 ''

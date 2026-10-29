@@ -130,6 +130,23 @@ configure_wpf() {
 EOF
 }
 
+# WPF draws what an application doesn't restyle with the theme that matches the visual style: Aero2
+# for Windows' Aero. Under Wine it fell back to its Classic theme, which left the submenu headers in
+# Fork's dark menus black: the .NET 4.8 installer skips PresentationFramework.Aero2 on Windows 7, and
+# Wine's Aero named its color scheme "Blue" where Windows says "NormalColor", which WPF builds the
+# theme's resource name from (patches/wine/0004). Install the one; for the other, move prefixes made
+# before that patch to the new name, as Wine turns theming off for a color its theme doesn't have.
+install_wpf_theme() {
+  local gac="$WIN_DIR/Microsoft.NET/assembly/GAC_MSIL/PresentationFramework.Aero2/v4.0_4.0.0.0__31bf3856ad364e35"
+  cmp -s "$FORK_DOTNET/PresentationFramework.Aero2.dll" "$gac/PresentationFramework.Aero2.dll" ||
+    install -D -m 644 "$FORK_DOTNET/PresentationFramework.Aero2.dll" "$gac/PresentationFramework.Aero2.dll"
+  grep -qF '"ColorName"="Blue"' "$FORK_PREFIX/user.reg" 2>/dev/null || return 0
+  import_reg <<'EOF'
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\ThemeManager]
+"ColorName"="NormalColor"
+EOF
+}
+
 # Fork's interface is Segoe UI and its code views Consolas, which Wine doesn't have. Map them to
 # "Inter UI" and "Hack UI", copies of Inter and Hack renamed and sized for Wine (see
 # fonts/ui-fonts.py). The system UI fonts become Segoe UI 9pt as on Windows 10; Wine's default is
@@ -288,6 +305,7 @@ cmd_install() {
   install_dotnet
   install_winrt
   configure_wpf
+  install_wpf_theme
   install_fonts
   install_fork
   wineserver -w
@@ -298,6 +316,7 @@ cmd_run() {
   [ -f "$FORK_DIR/current/Fork.exe" ] || die "Fork is not installed; run: fork install"
   update_prefix
   install_winrt
+  install_wpf_theme
   install_fonts
   apply_settings
   configure_git
