@@ -1,0 +1,45 @@
+# Builds the flake and uploads the patched Wine and the git bridge to the fork-git-flake Cachix
+# cache, so `nix run` downloads them instead of compiling Wine. Nothing else is pushed: the rest
+# comes from cache.nixos.org, and the fork package's closure also holds the .NET Framework and
+# Windows SDK files from Microsoft, which are not ours to redistribute.
+name: Build and cache
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      # Room for Wine's build tree.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: actions/checkout@v7.0.1
+      - uses: cachix/install-nix-action@v31.11.2
+      - uses: cachix/cachix-action@v17
+        with:
+          name: fork-git-flake
+          skipPush: true
+
+      - name: Build
+        run: nix build --print-build-logs .#fork
+
+      - name: Push Wine and the git bridge
+        if: github.event_name != 'pull_request'
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          if [ -z "$CACHIX_AUTH_TOKEN" ]; then echo "No CACHIX_AUTH_TOKEN secret; not pushing."; exit 0; fi
+          wine=$(nix build --no-link --print-out-paths .#wine)
+          bridge=$(nix path-info --recursive .#fork | grep -- '-fork-git-bridge-exe-')
+          cachix push fork-git-flake "$wine" "$bridge"
