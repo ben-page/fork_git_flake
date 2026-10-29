@@ -231,6 +231,36 @@ EOF
   printf '%s' "$wanted" > "$FORK_HOME/.settings"
 }
 
+# Fork runs its git commands on the user's own git through git-bridge/: git.exe in the prefix hands
+# each call to fork-git, which runs `git` from PATH, so the user's configuration, credential helpers
+# and ssh setup apply as on the command line. Fork's bundled Git for Windows misreads Linux checkouts
+# (Wine has no execute bits; it sets core.autocrlf=true). FORK_GIT=bundled keeps it.
+configure_git() {
+  local exe='C:\Program Files\fork-git-bridge\git.exe' dir="$WIN_DIR/../Program Files/fork-git-bridge"
+  if [ "${FORK_GIT:-linux}" = bundled ]; then
+    exe=""
+  else
+    mkdir -p "$dir"
+    cmp -s "$FORK_GIT_EXE/git.exe" "$dir/git.exe" || install -m 644 "$FORK_GIT_EXE/git.exe" "$dir/git.exe"
+    FORK_LINUX_GIT="$(command -v git || true)"
+    [ -n "$FORK_LINUX_GIT" ] || FORK_LINUX_GIT="$FORK_NIX_GIT"
+    FORK_WINE="$(command -v wine)"
+    export FORK_GIT_BRIDGE="$FORK_GIT_SCRIPT" FORK_LINUX_GIT FORK_WINE FORK_GIT_HELPERS="$FORK_HOME/git-helpers"
+  fi
+  python3 -I - "$FORK_DIR/settings.json" "$exe" <<'EOF'
+import json, os, sys
+path, exe = sys.argv[1], sys.argv[2] or None
+settings = {}
+if os.path.exists(path):
+    with open(path, encoding="utf-8-sig") as f:
+        settings = json.load(f)
+if settings.get("GitInstancePath") != exe:
+    settings["GitInstancePath"] = exe
+    with open(path, "w", encoding="utf-8-sig") as f:
+        json.dump(settings, f, indent=2)
+EOF
+}
+
 cmd_install() {
   create_prefix
   install_dotnet
@@ -246,6 +276,7 @@ cmd_run() {
   [ -f "$FORK_DIR/current/Fork.exe" ] || die "Fork is not installed; run: fork install"
   install_winrt
   apply_settings
+  configure_git
   local args=() arg
   for arg in "$@"; do
     if [ -e "$arg" ]; then args+=("$(winepath -w "$(realpath "$arg")")"); else args+=("$arg"); fi
@@ -260,7 +291,8 @@ Usage: fork [repository...]   start Fork, opening the given repositories
        fork exec <cmd...>     run a command in the prefix (regedit, winecfg, cmd, ...)
        fork kill              stop everything running in the prefix
 
-Environment: FORK_HOME (default ~/.local/share/fork-wine), FORK_DPI, FORK_WAYLAND=0, WINEDEBUG
+Environment: FORK_HOME (default ~/.local/share/fork-wine), FORK_DPI, FORK_WAYLAND=0,
+             FORK_GIT=bundled, FORK_GIT_TRACE=<file>, WINEDEBUG
 EOF
 }
 

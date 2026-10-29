@@ -20,7 +20,8 @@
       dotnet = pkgs.callPackage ./dotnet.nix { };
       winrt = pkgs.callPackage ./winrt.nix { inherit dotnet; };
       fonts = pkgs.callPackage ./fonts.nix { };
-      fork = pkgs.callPackage ./fork.nix { inherit wine dotnet winrt fonts; };
+      gitBridge = pkgs.callPackage ./git-bridge.nix { };
+      fork = pkgs.callPackage ./fork.nix { inherit wine dotnet winrt fonts gitBridge; };
     in
     {
       packages.${system} = {

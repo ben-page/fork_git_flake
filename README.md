@@ -31,17 +31,25 @@ After installing, Fork updates itself as it does on Windows.
 | `FORK_HOME` | `~/.local/share/fork-wine` | the Wine prefix lives in `prefix/` |
 | `FORK_DPI` | from the desktop | Wine's dpi. Unset: 96 × the scale of KDE's primary output or sway's focused output on Wayland, `Xft.dpi` on X11 |
 | `FORK_WAYLAND` | `1` | Wine's Wayland driver in a Wayland session; `0` for X11/Xwayland |
+| `FORK_GIT` | | `bundled` to use the Git for Windows that Fork bundles instead of your git (not recommended) |
+| `FORK_GIT_TRACE` | | a file that logs every git call Fork makes |
 | `WINEDEBUG` | `-all` | Wine debug channels |
+
+## Git
+
+Fork's git commands run on your own git, the `git` on your `PATH` (nixpkgs' git if there is none).
+Your `~/.gitconfig`, credential helpers, ssh keys and agent, and hooks apply as they do on the
+command line; there is nothing to set up in Fork. When git needs a password nothing else provides,
+Fork's own prompt asks for it.
+
+`git-bridge/` does this: the `git.exe` Fork runs in the Wine prefix hands each call, with its
+arguments' Windows paths converted, to `fork-git`, which runs your git and converts the absolute
+paths a few commands print back to Windows paths.
 
 ## Known problems
 
-* **Use Fork on test repositories only for now.** Fork drives the Git for Windows it bundles, which
-  misreads repositories on Linux: Wine has no execute bits, so executable files show as modified
-  (mode 100755 to 100644), and its `core.autocrlf=true` rewrites line endings on checkout. Handing
-  Fork's git commands to Linux git is the next piece of work.
 * WPF renders in software (see below); fine for a git client.
-* Not tested yet: fetch and push with credentials, interactive rebase, license activation,
-  notifications, multiple monitors.
+* Not tested yet: interactive rebase, license activation, notifications, multiple monitors.
 
 ## What the launcher fixes
 
@@ -56,6 +64,7 @@ Each fix was found by reading Wine's and .NET's logs and is a separate commit.
 | Blurry, scaled-up window on HiDPI outputs | Set Wine's dpi from the desktop's scale on every start |
 | On Wayland the window stops updating after the first frame | Wine's Wayland driver keeps showing a Direct3D surface's first frame. Turn off WPF's hardware rendering |
 | Segoe UI and Consolas missing; text falls back to Tahoma, bold and semibold render regular | Map Segoe UI to "Inter UI" and Consolas to Hack, and make Segoe UI the system UI font as on Windows. "Inter UI" is Inter with its regular face renamed: Wine reports the system font by its full name, "Inter Regular", which WPF reads as a single face (`fonts/inter-ui.py`) |
+| Fork's bundled Git for Windows misreads Linux checkouts: executable files show as modified (Wine has no execute bits) and its `core.autocrlf=true` rewrites line endings | Run Fork's git commands on your Linux git (`git-bridge/`, see [Git](#git)) |
 
 ## License
 
