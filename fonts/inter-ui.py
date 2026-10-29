@@ -9,6 +9,11 @@ default-styled text in Fork rendered Regular whatever weight it asked for. Segoe
 named just "Segoe UI"; this copy does the same. The regular face stays first in the collection, so
 it is the face Wine finds first. The Display faces are left out.
 
+At the same point size Inter draws about 8% larger than Segoe UI: its x-height is 0.546 em against
+0.500, its average a-z width 0.536 em against 0.493. Fork's layout is made for Segoe UI, so the
+glyphs are drawn at SCALE of their size (a larger unitsPerEm for the same outlines; Inter carries no
+glyph hinting), with the vertical metrics scaled to match, which keeps the line height.
+
 Inter is licensed under the SIL Open Font License 1.1, which reserves no font names.
 """
 import sys
@@ -16,6 +21,7 @@ import sys
 from fontTools.ttLib import TTCollection
 
 FAMILY, POSTSCRIPT = "Inter UI", "InterUI"
+SCALE = 0.92
 
 src, out = sys.argv[1], sys.argv[2]
 faces = []
@@ -32,6 +38,14 @@ for font in TTCollection(src).fonts:
         for rec in name.names:
             if rec.nameID == 4:
                 rec.string = FAMILY
+
+    head, hhea, os2 = font["head"], font["hhea"], font["OS/2"]
+    upem = round(head.unitsPerEm / SCALE)
+    grow = upem / head.unitsPerEm
+    head.unitsPerEm = upem
+    for table, attr in ((hhea, "ascent"), (hhea, "descent"), (hhea, "lineGap"), (os2, "sTypoAscender"),
+                        (os2, "sTypoDescender"), (os2, "sTypoLineGap"), (os2, "usWinAscent"), (os2, "usWinDescent")):
+        setattr(table, attr, round(getattr(table, attr) * grow))
     faces.append(font)
 
 collection = TTCollection()
