@@ -32,6 +32,22 @@ create_prefix() {
   # Microsoft's .NET Framework and needs neither.
   WINEDLLOVERRIDES="$WINEDLLOVERRIDES;mscoree=;mshtml=" wineboot -i
   wineserver -w
+  wine_build > "$FORK_HOME/.wine-build"
+}
+
+wine_build() {
+  readlink -f "$(command -v wine)"
+}
+
+# Wine updates a prefix (its builtin DLLs, the theme, wine.inf's registry defaults) when wine.inf is
+# newer than the prefix, but everything in the Nix store has the same timestamp, so it never sees a
+# new Wine build from Nix. Update the prefix when the Wine build changes.
+update_prefix() {
+  [ "$(cat "$FORK_HOME/.wine-build" 2>/dev/null)" != "$(wine_build)" ] || return 0
+  log "Updating the prefix for a new Wine build"
+  WINEDLLOVERRIDES="$WINEDLLOVERRIDES;mscoree=;mshtml=" wineboot -u
+  wineserver -w
+  wine_build > "$FORK_HOME/.wine-build"
 }
 
 is_wine_builtin() {
@@ -268,6 +284,7 @@ EOF
 
 cmd_install() {
   create_prefix
+  update_prefix
   install_dotnet
   install_winrt
   configure_wpf
@@ -279,6 +296,7 @@ cmd_install() {
 
 cmd_run() {
   [ -f "$FORK_DIR/current/Fork.exe" ] || die "Fork is not installed; run: fork install"
+  update_prefix
   install_winrt
   install_fonts
   apply_settings
