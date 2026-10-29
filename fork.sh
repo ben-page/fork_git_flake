@@ -104,6 +104,16 @@ install_winrt() {
   done
 }
 
+# Wine's Wayland driver keeps showing a Direct3D surface's first frame over the area the window had
+# when it was created, so with WPF's hardware rendering Fork's window stops updating. WPF's software
+# renderer draws through GDI.
+configure_wpf() {
+  import_reg <<'EOF'
+[HKEY_CURRENT_USER\Software\Microsoft\Avalon.Graphics]
+"DisableHWAcceleration"=dword:00000001
+EOF
+}
+
 # Install the newest full package from Fork's Velopack update feed, laid out as its installer would.
 # Fork updates itself from there on.
 install_fork() {
@@ -192,6 +202,7 @@ cmd_install() {
   create_prefix
   install_dotnet
   install_winrt
+  configure_wpf
   install_fork
   wineserver -w
   log "Done. Start Fork with: fork [repository...]"
