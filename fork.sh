@@ -77,6 +77,33 @@ EOF
   wineserver -w
 }
 
+# Fork follows the desktop's light/dark setting through WinRT (UISettings.ColorValuesChanged). .NET
+# Framework finds WinRT types through the .winmd files in system32\WinMetaData, and through
+# System.Runtime.WindowsRuntime, which the .NET 4.8 installer leaves out on Windows 7 (on Windows 8
+# and later it comes as a Windows update package instead). Wine's own .winmd files cover a few types
+# of each namespace and carry assembly names .NET rejects ("include/windows.ui": FileLoadException
+# 0x80131047), so they are moved to WinMetaData.wine. Wine puts them back when it updates the prefix,
+# so this runs on every start.
+install_winrt() {
+  local dir file assembly gac="$WIN_DIR/Microsoft.NET/assembly/GAC_MSIL"
+  for dir in "$WIN_DIR/system32" "$WIN_DIR/syswow64"; do
+    mkdir -p "$dir/winmetadata"
+    for file in "$dir/winmetadata"/*.winmd; do
+      [ -e "$file" ] || continue
+      case "${file##*/}" in windows.winmd|windows.foundation.winmd) continue ;; esac
+      mkdir -p "$dir/winmetadata.wine"
+      mv -f "$file" "$dir/winmetadata.wine/"
+    done
+    for file in windows.winmd windows.foundation.winmd; do
+      cmp -s "$FORK_WINRT/$file" "$dir/winmetadata/$file" || install -m 644 "$FORK_WINRT/$file" "$dir/winmetadata/"
+    done
+  done
+  for assembly in System.Runtime.WindowsRuntime System.Runtime.WindowsRuntime.UI.Xaml; do
+    file="$gac/$assembly/v4.0_4.0.0.0__b77a5c561934e089/$assembly.dll"
+    cmp -s "$FORK_WINRT/$assembly.dll" "$file" || install -D -m 644 "$FORK_WINRT/$assembly.dll" "$file"
+  done
+}
+
 # Install the newest full package from Fork's Velopack update feed, laid out as its installer would.
 # Fork updates itself from there on.
 install_fork() {
@@ -132,6 +159,7 @@ EOF
 cmd_install() {
   create_prefix
   install_dotnet
+  install_winrt
   install_fork
   wineserver -w
   log "Done. Start Fork with: fork [repository...]"
@@ -139,6 +167,7 @@ cmd_install() {
 
 cmd_run() {
   [ -f "$FORK_DIR/current/Fork.exe" ] || die "Fork is not installed; run: fork install"
+  install_winrt
   apply_settings
   local args=() arg
   for arg in "$@"; do
