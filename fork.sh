@@ -141,15 +141,47 @@ shutil.copy(os.path.join(current, "Fork_ExecutionStub.exe"), os.path.join(root, 
 EOF
 }
 
-# Settings that follow the desktop, checked on every start: in a Wayland session, Wine's Wayland
-# driver (FORK_WAYLAND=0 for X11/Xwayland).
+# Wine's dpi: FORK_DPI, else 96 times the scale of KDE's primary output or sway's focused output on
+# Wayland, else Xft.dpi on X11, else 96.
+desktop_dpi() {
+  if [ -n "${FORK_DPI:-}" ]; then echo "$FORK_DPI"; return; fi
+  local scale=""
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v kscreen-doctor >/dev/null; then
+    scale="$(kscreen-doctor -j 2>/dev/null | python3 -I -c '
+import json, sys
+outputs = [o for o in json.load(sys.stdin).get("outputs", []) if o.get("enabled")]
+print(min(outputs, key=lambda o: o.get("priority") or 99).get("scale", 1) if outputs else "")' 2>/dev/null)" || scale=""
+  elif [ -n "${WAYLAND_DISPLAY:-}" ] && command -v swaymsg >/dev/null; then
+    scale="$(swaymsg -t get_outputs 2>/dev/null | python3 -I -c '
+import json, sys
+outputs = json.load(sys.stdin)
+print(next((o for o in outputs if o.get("focused")), {}).get("scale", ""))' 2>/dev/null)" || scale=""
+  elif [ -n "${DISPLAY:-}" ] && command -v xrdb >/dev/null; then
+    local xft
+    xft="$(xrdb -query 2>/dev/null | sed -n 's/^Xft\.dpi:[[:space:]]*\([0-9.]*\).*/\1/p' | head -n 1)"
+    [ -n "$xft" ] && scale="$(python3 -I -c 'import sys; print(float(sys.argv[1]) / 96)' "$xft")"
+  fi
+  python3 -I -c 'import sys; s = sys.argv[1]; print(max(96, round(96 * float(s))) if s else 96)' "$scale"
+}
+
+# Settings that follow the desktop, checked on every start: dpi and, in a Wayland session, Wine's
+# Wayland driver (FORK_WAYLAND=0 for X11/Xwayland).
 apply_settings() {
-  local driver=x11 wanted
+  local dpi driver=x11 wanted
+  dpi="$(desktop_dpi)"
   if [ "${FORK_WAYLAND:-1}" = 1 ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then driver="wayland,x11"; fi
-  wanted="driver=$driver"
+  wanted="dpi=$dpi driver=$driver"
   [ "$(cat "$FORK_HOME/.settings" 2>/dev/null)" = "$wanted" ] && return 0
-  log "Setting graphics driver $driver"
+  log "Setting dpi $dpi, graphics driver $driver"
+  local hex
+  hex="$(printf '%08x' "$dpi")"
   import_reg <<EOF
+[HKEY_CURRENT_USER\Control Panel\Desktop]
+"LogPixels"=dword:$hex
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts]
+"LogPixels"=dword:$hex
+
 [HKEY_CURRENT_USER\Software\Wine\Drivers]
 "Graphics"="$driver"
 EOF
@@ -183,7 +215,7 @@ Usage: fork [repository...]   start Fork, opening the given repositories
        fork exec <cmd...>     run a command in the prefix (regedit, winecfg, cmd, ...)
        fork kill              stop everything running in the prefix
 
-Environment: FORK_HOME (default ~/.local/share/fork-wine), FORK_WAYLAND=0, WINEDEBUG
+Environment: FORK_HOME (default ~/.local/share/fork-wine), FORK_DPI, FORK_WAYLAND=0, WINEDEBUG
 EOF
 }
 
