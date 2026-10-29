@@ -16,11 +16,18 @@
           ./patches/wine/0002-combase-Implement-RoGetParameterizedTypeInstanceIID.patch
         ];
       });
+
+      fork = pkgs.callPackage ./fork.nix { inherit wine; };
     in
     {
       packages.${system} = {
-        inherit wine;
-        default = wine;
+        inherit wine fork;
+        default = fork;
+      };
+
+      apps.${system}.default = {
+        type = "app";
+        program = pkgs.lib.getExe fork;
       };
     };
 }
