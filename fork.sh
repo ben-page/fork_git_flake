@@ -117,12 +117,16 @@ EOF
 # Fork's interface is Segoe UI, which Wine doesn't have. Map it to "Inter UI", a copy of Inter whose
 # regular face is named after the family (see fonts/inter-ui.py), and Consolas to Hack. The system
 # UI fonts become Segoe UI 9pt as on Windows 10; Wine's default is Tahoma 8pt. DirectWrite, which
-# WPF uses, only sees fonts listed under CurrentVersion\Fonts.
+# WPF uses, only sees fonts listed under CurrentVersion\Fonts. This runs on every start, so a prefix
+# gets the flake's current fonts; it does its work only when a font changed.
 install_fonts() {
-  local font
+  local font changed=""
   for font in "$FORK_FONTS"/*; do
+    cmp -s "$font" "$WIN_DIR/Fonts/${font##*/}" && continue
     install -m 644 "$font" "$WIN_DIR/Fonts/"
+    changed=1
   done
+  [ -n "$changed" ] || return 0
   # LOGFONTW for Segoe UI, 9pt (height -12 at 96 dpi), regular weight.
   local segoe_ui_9="f4,ff,ff,ff,00,00,00,00,00,00,00,00,00,00,00,00,90,01,00,00,00,00,00,01,00,00,00,00,53,00,65,00,67,00,6f,00,65,00,20,00,55,00,49,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00"
   import_reg <<EOF
@@ -275,6 +279,7 @@ cmd_install() {
 cmd_run() {
   [ -f "$FORK_DIR/current/Fork.exe" ] || die "Fork is not installed; run: fork install"
   install_winrt
+  install_fonts
   apply_settings
   configure_git
   local args=() arg
