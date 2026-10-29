@@ -34,6 +34,49 @@ create_prefix() {
   wineserver -w
 }
 
+is_wine_builtin() {
+  [ "$(dd if="$1" bs=1 skip=64 count=16 2>/dev/null)" = "Wine builtin DLL" ]
+}
+
+# winetricks' dotnet48 first installs .NET 4.0 on Windows XP, and that MSI fails under current Wine
+# (error 1603). Only two things are needed from it: the mscoree.dll shim (later .NET installers
+# expect Windows to provide it) and the registry keys the shim reads to find the runtime.
+install_dotnet() {
+  if [ -f "$WIN_DIR/Microsoft.NET/Framework64/v4.0.30319/clr.dll" ] && ! is_wine_builtin "$WIN_DIR/system32/mscoree.dll"; then
+    return 0
+  fi
+  log "Installing .NET Framework 4.8 (this takes a few minutes)"
+  wine winecfg -v win7
+  local rc=0
+  WINEDLLOVERRIDES="$WINEDLLOVERRIDES;fusion=b" wine "$FORK_DOTNET/ndp48-x86-x64-allos-enu.exe" /q /norestart || rc=$?
+  wineserver -w
+  case "$rc" in 0|3010) ;; *) die ".NET Framework 4.8 setup failed with exit code $rc" ;; esac
+  [ -f "$WIN_DIR/Microsoft.NET/Framework64/v4.0.30319/clr.dll" ] || die ".NET Framework 4.8 setup did not install the runtime"
+
+  install -m 644 "$FORK_DOTNET/x86_64/mscoree.dll" "$FORK_DOTNET/x86_64/mscorees.dll" "$WIN_DIR/system32/"
+  install -m 644 "$FORK_DOTNET/i386/mscoree.dll" "$FORK_DOTNET/i386/mscorees.dll" "$WIN_DIR/syswow64/"
+  import_reg <<'EOF'
+[HKEY_LOCAL_MACHINE\Software\Microsoft\.NETFramework]
+"InstallRoot"="C:\\windows\\Microsoft.NET\\Framework64\\"
+"OnlyUseLatestCLR"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\.NETFramework\Policy\v4.0]
+"30319"="30319-30319"
+
+[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\.NETFramework]
+"InstallRoot"="C:\\windows\\Microsoft.NET\\Framework\\"
+"OnlyUseLatestCLR"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\.NETFramework\Policy\v4.0]
+"30319"="30319-30319"
+
+[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+"mscoree"="native"
+EOF
+  wine winecfg -v win10
+  wineserver -w
+}
+
 # Install the newest full package from Fork's Velopack update feed, laid out as its installer would.
 # Fork updates itself from there on.
 install_fork() {
@@ -88,6 +131,7 @@ EOF
 
 cmd_install() {
   create_prefix
+  install_dotnet
   install_fork
   wineserver -w
   log "Done. Start Fork with: fork [repository...]"

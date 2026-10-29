@@ -17,7 +17,8 @@
         ];
       });
 
-      fork = pkgs.callPackage ./fork.nix { inherit wine; };
+      dotnet = pkgs.callPackage ./dotnet.nix { };
+      fork = pkgs.callPackage ./fork.nix { inherit wine dotnet; };
     in
     {
       packages.${system} = {
