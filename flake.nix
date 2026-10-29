@@ -19,7 +19,8 @@
 
       dotnet = pkgs.callPackage ./dotnet.nix { };
       winrt = pkgs.callPackage ./winrt.nix { inherit dotnet; };
-      fork = pkgs.callPackage ./fork.nix { inherit wine dotnet winrt; };
+      fonts = pkgs.callPackage ./fonts.nix { };
+      fork = pkgs.callPackage ./fork.nix { inherit wine dotnet winrt fonts; };
     in
     {
       packages.${system} = {

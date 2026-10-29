@@ -114,6 +114,39 @@ configure_wpf() {
 EOF
 }
 
+# Fork's interface is Segoe UI, which Wine doesn't have. Map it to "Inter UI", a copy of Inter whose
+# regular face is named after the family (see fonts/inter-ui.py), and Consolas to Hack. The system
+# UI fonts become Segoe UI 9pt as on Windows 10; Wine's default is Tahoma 8pt. DirectWrite, which
+# WPF uses, only sees fonts listed under CurrentVersion\Fonts.
+install_fonts() {
+  local font
+  for font in "$FORK_FONTS"/*; do
+    install -m 644 "$font" "$WIN_DIR/Fonts/"
+  done
+  # LOGFONTW for Segoe UI, 9pt (height -12 at 96 dpi), regular weight.
+  local segoe_ui_9="f4,ff,ff,ff,00,00,00,00,00,00,00,00,00,00,00,00,90,01,00,00,00,00,00,01,00,00,00,00,53,00,65,00,67,00,6f,00,65,00,20,00,55,00,49,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00"
+  import_reg <<EOF
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]
+"Inter UI (TrueType)"="InterUI.ttc"
+"Hack (TrueType)"="Hack-Regular.ttf"
+"Hack Bold (TrueType)"="Hack-Bold.ttf"
+"Hack Italic (TrueType)"="Hack-Italic.ttf"
+"Hack Bold Italic (TrueType)"="Hack-BoldItalic.ttf"
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
+"Segoe UI"="Inter UI"
+"Consolas"="Hack"
+
+[HKEY_CURRENT_USER\Control Panel\Desktop\WindowMetrics]
+"CaptionFont"=hex:$segoe_ui_9
+"SmCaptionFont"=hex:$segoe_ui_9
+"MenuFont"=hex:$segoe_ui_9
+"StatusFont"=hex:$segoe_ui_9
+"MessageFont"=hex:$segoe_ui_9
+"IconFont"=hex:$segoe_ui_9
+EOF
+}
+
 # Install the newest full package from Fork's Velopack update feed, laid out as its installer would.
 # Fork updates itself from there on.
 install_fork() {
@@ -203,6 +236,7 @@ cmd_install() {
   install_dotnet
   install_winrt
   configure_wpf
+  install_fonts
   install_fork
   wineserver -w
   log "Done. Start Fork with: fork [repository...]"
