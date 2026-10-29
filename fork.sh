@@ -114,11 +114,12 @@ configure_wpf() {
 EOF
 }
 
-# Fork's interface is Segoe UI, which Wine doesn't have. Map it to "Inter UI", a copy of Inter whose
-# regular face is named after the family (see fonts/inter-ui.py), and Consolas to Hack. The system
-# UI fonts become Segoe UI 9pt as on Windows 10; Wine's default is Tahoma 8pt. DirectWrite, which
-# WPF uses, only sees fonts listed under CurrentVersion\Fonts. This runs on every start, so a prefix
-# gets the flake's current fonts; it does its work only when a font changed.
+# Fork's interface is Segoe UI and its code views Consolas, which Wine doesn't have. Map them to
+# "Inter UI" and "Hack UI", copies of Inter and Hack renamed and sized for Wine (see
+# fonts/ui-fonts.py). The system UI fonts become Segoe UI 9pt as on Windows 10; Wine's default is
+# Tahoma 8pt. DirectWrite, which WPF uses, only sees fonts listed under CurrentVersion\Fonts. This
+# runs on every start, so a prefix gets the flake's current fonts; it does its work only when a font
+# changed.
 install_fonts() {
   local font changed=""
   for font in "$FORK_FONTS"/*; do
@@ -132,14 +133,14 @@ install_fonts() {
   import_reg <<EOF
 [HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]
 "Inter UI (TrueType)"="InterUI.ttc"
-"Hack (TrueType)"="Hack-Regular.ttf"
-"Hack Bold (TrueType)"="Hack-Bold.ttf"
-"Hack Italic (TrueType)"="Hack-Italic.ttf"
-"Hack Bold Italic (TrueType)"="Hack-BoldItalic.ttf"
+"Hack UI Regular (TrueType)"="HackUI-Regular.ttf"
+"Hack UI Bold (TrueType)"="HackUI-Bold.ttf"
+"Hack UI Italic (TrueType)"="HackUI-Italic.ttf"
+"Hack UI Bold Italic (TrueType)"="HackUI-BoldItalic.ttf"
 
 [HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
 "Segoe UI"="Inter UI"
-"Consolas"="Hack"
+"Consolas"="Hack UI"
 
 [HKEY_CURRENT_USER\Control Panel\Desktop\WindowMetrics]
 "CaptionFont"=hex:$segoe_ui_9
