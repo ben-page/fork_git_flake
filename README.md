@@ -10,14 +10,28 @@ would on Windows or macOS. This project is not affiliated with Fork's authors.
 
 ## Usage
 
+You need [Nix](https://nixos.org/download/) with flakes enabled, on x86_64 Linux; any distribution
+works.
+
 ```sh
 nix run github:ben-page/fork_git_flake -- install          # create the Wine prefix, install .NET, fonts and Fork
 nix run github:ben-page/fork_git_flake                     # start Fork
 nix run github:ben-page/fork_git_flake -- ~/src/project    # start Fork with a repository open
 ```
 
-The first run builds Wine from source with the patches in `patches/wine/`, which takes a while.
-After installing, Fork updates itself as it does on Windows.
+Wine with the patches in `patches/wine/` isn't in nixpkgs' binary cache, so CI builds it and
+uploads it to `fork-git-flake.cachix.org`. The first run asks whether to use that cache; answer `y`
+to both questions. If Nix instead warns that it is ignoring an untrusted substituter, add the cache
+to `/etc/nix/nix.conf` and restart the Nix daemon:
+
+```
+extra-substituters = https://fork-git-flake.cachix.org
+extra-trusted-public-keys = fork-git-flake.cachix.org-1:eGXL0NI1ALtyerG+XH//PjtAK9zIwo38fPKCwmWkL5c=
+```
+
+Without the cache, the first run builds Wine from source, which takes a while. After installing,
+Fork updates itself as it does on Windows. To stay on a release, use
+`github:ben-page/fork_git_flake/v0.1.0` instead.
 
 | Command | |
 |---------|---|

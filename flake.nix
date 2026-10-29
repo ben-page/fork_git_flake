@@ -3,6 +3,12 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+  # The patched Wine isn't in cache.nixos.org; CI builds it and uploads it here (.github/workflows/).
+  nixConfig = {
+    extra-substituters = [ "https://fork-git-flake.cachix.org" ];
+    extra-trusted-public-keys = [ "fork-git-flake.cachix.org-1:eGXL0NI1ALtyerG+XH//PjtAK9zIwo38fPKCwmWkL5c=" ];
+  };
+
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
