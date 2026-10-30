@@ -264,6 +264,10 @@ update_icon() {
   rm -f "$ico"
 }
 
+remove_icon() {
+  find "$ICONS" -mindepth 3 -maxdepth 3 -path '*/apps/fork_git_flake.png' -delete 2>/dev/null || true
+}
+
 add_shortcut() {
   case "$FORK_HOME" in
     *[\"\`\$\\%]* | *$'\n'*)
@@ -396,10 +400,35 @@ cmd_run() {
   exec wine "$FORK_DIR/current/Fork.exe" "${args[@]}"
 }
 
+# Removes only what this script created, in case FORK_HOME points at a folder holding other files.
+# Nix frees the store paths once the launcher link (a GC root) is gone.
+cmd_uninstall() {
+  if [ "${1:-}" != --yes ]; then
+    [ -t 0 ] || die "Not a terminal; to uninstall without a prompt, run: fork uninstall --yes"
+    log "This deletes Fork, its settings and its license activation ($FORK_PREFIX),"
+    log "the app menu entry and Fork's downloads ($FORK_CACHE). Your repositories aren't touched."
+    local answer
+    read -r -p "Uninstall? [y/N] " answer
+    case "$answer" in [yY]*) ;; *) die "Nothing was removed" ;; esac
+  fi
+  if [ -d "$FORK_PREFIX" ]; then wineserver -k 2>/dev/null || true; fi
+  if shortcut_is_ours; then
+    rm -f "$SHORTCUT"
+    remove_icon
+  fi
+  rm -rf "$FORK_PREFIX" "$FORK_HOME/git-helpers" "$FORK_CACHE"
+  rm -f "$FORK_HOME/launcher" "$FORK_HOME/.wine-build" "$FORK_HOME/.settings"
+  if [ -d "$FORK_HOME" ] && ! rmdir "$FORK_HOME" 2>/dev/null; then
+    log "Left $FORK_HOME in place: it holds files this script didn't create"
+  fi
+  log "Uninstalled. Nix frees the Wine build at its next garbage collection (nix store gc)."
+}
+
 usage() {
   cat <<EOF
 Usage: fork [repository...]   start Fork, opening the given repositories
-       fork install           create the Wine prefix and install .NET, fonts and Fork
+       fork install           create the Wine prefix, install .NET, fonts and Fork, add the menu entry
+       fork uninstall [--yes] delete the prefix (with Fork and its settings) and the menu entry
        fork exec <cmd...>     run a command in the prefix (regedit, winecfg, cmd, ...)
        fork kill              stop everything running in the prefix
 
@@ -410,6 +439,7 @@ EOF
 
 case "${1:-}" in
   install) cmd_install ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
   exec) shift; [ $# -gt 0 ] || die "Usage: fork exec <cmd...>"; exec wine "$@" ;;
   kill) wineserver -k ;;
   -h|--help|help) usage ;;

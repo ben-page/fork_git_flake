@@ -58,11 +58,13 @@ With `nix run`, put these after `--`, as above. If you install the flake with
 |---------|--------------|
 | `fork [repository...]` | Start Fork, opening any repositories you name |
 | `fork install` | Set up the Wine prefix, install .NET Framework 4.8, the fonts and Fork, and add Fork to your app menu |
+| `fork uninstall` | Remove Fork, its settings and license activation, the Wine prefix, the app menu entry and the downloads. It asks first; `--yes` skips the question. Your repositories aren't touched |
 | `fork exec <command...>` | Run a command inside the prefix, such as `regedit`, `winecfg` or `cmd` |
 | `fork kill` | Stop everything running in the prefix |
 
-Everything lives in `~/.local/share/fork-wine`, apart from the app menu entry,
-`~/.local/share/applications/fork-wine.desktop`. To uninstall, delete both.
+Everything lives in `~/.local/share/fork-wine`, apart from the app menu entry and Fork's downloads
+in `~/.cache/fork-wine`, and `fork uninstall` removes all of it. If you installed the flake with
+`nix profile install`, also remove it with `nix profile remove`.
 
 ## Settings
 
