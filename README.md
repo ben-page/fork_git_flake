@@ -90,7 +90,8 @@ executable file as modified, and its `core.autocrlf=true` setting rewrites line 
 
 * Fork's window is drawn in software rather than on the GPU (see below). That's fine for a git
   client.
-* Multiple monitors work, but only monitors with the same scale have been tested.
+* Resizing a large window lags behind the pointer: Fork takes up to about half a second to redraw
+  at each new size.
 
 ## What this fixes
 
