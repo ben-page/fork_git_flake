@@ -97,8 +97,8 @@ executable file as modified, and its `core.autocrlf=true` setting rewrites line 
 
 * Fork's window is drawn in software rather than on the GPU (see below). That's fine for a git
   client.
-* Resizing a large window lags behind the pointer: Fork takes up to about half a second to redraw
-  at each new size.
+* Resizing a large window lags a little behind the pointer: Fork takes about a fifth of a second to
+  redraw at each new size.
 
 ## What this fixes
 
@@ -134,6 +134,9 @@ fixed in its own commit.
   and "Hack UI" for Wine. Wine reports the system font by its full name, "Inter Regular", which WPF
   reads as a single regular face. And Wine ignores a font in the prefix that shares its name with
   one installed on your system.
+* **Resizing is slow.** While you resized the window, Fork took about half a second to redraw at
+  each new size. Wine's DirectWrite set up Inter's hinting from scratch for every glyph it measured
+  or drew. `patches/wine/` keeps that setup for reuse, which brings it to about a fifth of a second.
 * **Some menu text is black.** In Fork's dark menus, submenu headers had black text because WPF had
   fallen back to its old Classic theme. The .NET 4.8 installer skips WPF's Aero2 theme on Windows
   7, and Wine names its Aero color scheme `Blue` where Windows says `NormalColor`, which WPF builds

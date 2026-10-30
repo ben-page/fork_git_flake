@@ -1,0 +1,156 @@
+From 23cec260ba881e38884c0f165b4f46bce5feb466 Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 21:38:19 -0500
+Subject: [PATCH] dwrite: Reuse a face's FreeType sizes instead of creating one
+ for each glyph.
+
+Every glyph metrics, outline, bounding box and bitmap request created a
+new FT_Size and freed it afterwards. For a TrueType font, creating a size
+runs the font program and setting it runs the control value program, so
+a hinted font paid for both on every glyph: drawing a WPF window's text
+in Inter (hinted with ttfautohint) spent most of its time in FreeType's
+bytecode interpreter, mostly in these two programs.
+
+Keep up to eight sizes per face, the most recently created ones, and
+reuse them. FreeType frees them with the face.
+---
+ dlls/dwrite/freetype.c | 56 +++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 50 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/dwrite/freetype.c b/dlls/dwrite/freetype.c
+index 13d9a07..de421a9 100644
+--- a/dlls/dwrite/freetype.c
++++ b/dlls/dwrite/freetype.c
+@@ -26,6 +26,7 @@
+ 
+ #include <sys/types.h>
+ #include <dlfcn.h>
++#include <stdlib.h>
+ 
+ #ifdef HAVE_FT2BUILD_H
+ #include <ft2build.h>
+@@ -89,10 +90,41 @@ MAKE_FUNCPTR(FT_Set_Pixel_Sizes);
+ 
+ #define FaceFromObject(o) ((FT_Face)(ULONG_PTR)(o))
+ 
++/* A face's sizes are kept for reuse. Creating a size runs a TrueType font's font program, and
++ * setting it runs the control value program, which for a hinted font cost far more than loading
++ * the glyph. FreeType frees the sizes with the face. */
++#define MAX_FACE_SIZES 8
++
++struct face_sizes
++{
++    FT_Size size[MAX_FACE_SIZES];
++    FT_UInt emsize[MAX_FACE_SIZES];
++    unsigned int count;
++    unsigned int next;
++};
++
++static void free_face_sizes(void *object)
++{
++    FT_Face face = object;
++    free(face->generic.data);
++}
++
+ static FT_Size freetype_set_face_size(FT_Face face, FT_UInt emsize)
+ {
++    struct face_sizes *sizes;
++    unsigned int i;
+     FT_Size size;
+ 
++    /* No face if the font file couldn't be loaded. */
++    if (!face || !(sizes = face->generic.data)) return NULL;
++
++    for (i = 0; i < sizes->count; ++i)
++    {
++        if (sizes->emsize[i] != emsize) continue;
++        pFT_Activate_Size(sizes->size[i]);
++        return sizes->size[i];
++    }
++
+     if (pFT_New_Size(face, &size)) return NULL;
+ 
+     pFT_Activate_Size(size);
+@@ -103,6 +135,17 @@ static FT_Size freetype_set_face_size(FT_Face face, FT_UInt emsize)
+         return NULL;
+     }
+ 
++    if (sizes->count < MAX_FACE_SIZES)
++        i = sizes->count++;
++    else
++    {
++        i = sizes->next;
++        sizes->next = (i + 1) % MAX_FACE_SIZES;
++        pFT_Done_Size(sizes->size[i]);
++    }
++    sizes->size[i] = size;
++    sizes->emsize[i] = emsize;
++
+     return size;
+ }
+ 
+@@ -191,6 +234,13 @@ static NTSTATUS create_font_object(void *args)
+         return STATUS_UNSUCCESSFUL;
+     }
+ 
++    if (!(face->generic.data = calloc(1, sizeof(struct face_sizes))))
++    {
++        pFT_Done_Face(face);
++        return STATUS_NO_MEMORY;
++    }
++    face->generic.finalizer = free_face_sizes;
++
+     *params->object = (ULONG_PTR)face;
+ 
+     return STATUS_SUCCESS;
+@@ -233,7 +283,6 @@ static NTSTATUS get_design_glyph_metrics(void *args)
+         }
+     }
+ 
+-    pFT_Done_Size(size);
+ 
+     return STATUS_SUCCESS;
+ }
+@@ -475,7 +524,6 @@ static NTSTATUS get_glyph_outline(void *args)
+         }
+     }
+ 
+-    pFT_Done_Size(size);
+ 
+     return STATUS_SUCCESS;
+ }
+@@ -547,7 +595,6 @@ static NTSTATUS get_glyph_bbox(void *args)
+     if (pFT_Load_Glyph(face, params->glyph, needs_transform ? FT_LOAD_NO_BITMAP : 0))
+     {
+         WARN("Failed to load glyph %u.\n", params->glyph);
+-        pFT_Done_Size(size);
+         return STATUS_UNSUCCESSFUL;
+     }
+ 
+@@ -563,7 +610,6 @@ static NTSTATUS get_glyph_bbox(void *args)
+ 
+     pFT_Glyph_Get_CBox(glyph, FT_GLYPH_BBOX_PIXELS, &bbox);
+     pFT_Done_Glyph(glyph);
+-    pFT_Done_Size(size);
+ 
+     /* flip Y axis */
+     SetRect(params->bbox, bbox.xMin, -bbox.yMax, bbox.xMax, -bbox.yMin);
+@@ -706,7 +752,6 @@ static NTSTATUS get_glyph_bitmap(void *args)
+         pFT_Done_Glyph(glyph);
+     }
+ 
+-    pFT_Done_Size(size);
+ 
+     return ret;
+ }
+@@ -729,7 +774,6 @@ static NTSTATUS get_glyph_advance(void *args)
+         *params->has_contours = freetype_glyph_has_contours(face);
+     }
+ 
+-    pFT_Done_Size(size);
+ 
+     return STATUS_SUCCESS;
+ }
+-- 
+2.56.0
+
