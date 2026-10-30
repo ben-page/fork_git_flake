@@ -31,7 +31,7 @@ can start it from there. The menu entry runs the version of this flake you start
 works offline.
 
 Once installed, Fork keeps itself up to date, just as it does on Windows. To stay on a release of
-this flake, use `github:ben-page/fork_git_flake/v0.1.0`.
+this flake, use `github:ben-page/fork_git_flake/v0.2.0`.
 
 ### The binary cache
 
