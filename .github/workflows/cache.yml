@@ -14,9 +14,11 @@ on:
 permissions:
   contents: read
 
+# A Wine build takes hours, so a new push to a branch or tag waits for it instead of cancelling it.
+# Pull requests don't push to the cache, so their old runs are cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
