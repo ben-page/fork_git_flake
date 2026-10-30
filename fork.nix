@@ -1,9 +1,9 @@
 # The `fork` command: fork.sh with Wine, its tools and the files it installs into the prefix.
-{ lib, writeShellApplication, wine, curl, python3, git, dotnet, winrt, fonts, gitBridge }:
+{ lib, writeShellApplication, wine, curl, python3, icoutils, git, dotnet, winrt, fonts, gitBridge }:
 
 writeShellApplication {
   name = "fork";
-  runtimeInputs = [ wine curl python3 ];
+  runtimeInputs = [ wine curl python3 icoutils ];
   text = ''
     FORK_DOTNET=${dotnet}
     FORK_WINRT=${winrt}

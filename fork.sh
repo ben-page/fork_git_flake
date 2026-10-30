@@ -8,6 +8,8 @@ FORK_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fork-wine"
 FORK_FEED="https://fork.dev/update/win"
 WIN_DIR="$FORK_PREFIX/drive_c/windows"
 FORK_DIR="$FORK_PREFIX/drive_c/users/${USER:-$(id -un)}/AppData/Local/Fork"
+SHORTCUT="${XDG_DATA_HOME:-$HOME/.local/share}/applications/fork-wine.desktop"
+ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 
 export WINEPREFIX="$FORK_PREFIX"
 export WINEDEBUG="${WINEDEBUG:--all}"
@@ -222,6 +224,71 @@ shutil.copy(os.path.join(current, "Fork_ExecutionStub.exe"), os.path.join(root, 
 EOF
 }
 
+# The app menu entry, in the folder every desktop reads (KDE, GNOME, Xfce, ...). It belongs to the
+# FORK_HOME that last ran `fork install`, and starts from that FORK_HOME keep it up to date.
+shortcut_is_ours() {
+  [ "$(sed -n 's/^X-Fork-Home=//p' "$SHORTCUT" 2>/dev/null)" = "$FORK_HOME" ]
+}
+
+# The entry runs Fork through $FORK_HOME/launcher, a link to the package of the flake version
+# started last. It's a Nix GC root, so the entry works offline and survives garbage collection.
+link_launcher() {
+  local package nix_store
+  package="$(readlink -f "${BASH_SOURCE[0]}")"
+  package="${package%/bin/fork}"
+  [ "$(readlink "$FORK_HOME/launcher")" = "$package" ] && return 0
+  nix_store="$(command -v nix-store || echo /nix/var/nix/profiles/default/bin/nix-store)"
+  if [ -x "$nix_store" ]; then
+    "$nix_store" --add-root "$FORK_HOME/launcher" --realise "$package" > /dev/null
+  else
+    log "nix-store not found, so Nix's garbage collection can break the app menu entry"
+    ln -sfn "$package" "$FORK_HOME/launcher"
+  fi
+}
+
+# The largest image in Fork.exe's icon (a 256x256 PNG; desktops scale it down), as the icon theme's
+# fork_git_flake: app launchers don't all load an icon given as a file path (KDE's doesn't). The
+# name has no dash because icon lookups fall back from a-b to a, and KDE's Breeze theme has a "fork"
+# icon that would win. Fork replaces Fork.exe when it updates itself.
+update_icon() {
+  local ico="$FORK_HOME/fork.ico" width="" index="" png
+  wrestool -x -t 14 "$FORK_DIR/current/Fork.exe" > "$ico" 2>/dev/null || true
+  read -r width index < <(icotool -l "$ico" 2>/dev/null |
+    sed -n 's/.*--index=\([0-9]*\) --width=\([0-9]*\).*/\2 \1/p' | sort -n | tail -n 1) || true
+  png="$ICONS/${width}x$width/apps/fork_git_flake.png"
+  if [ -n "$index" ] && mkdir -p "${png%/*}" && icotool -x -i "$index" -o "$png.part" "$ico"; then
+    if cmp -s "$png.part" "$png"; then rm -f "$png.part"; else mv "$png.part" "$png"; fi
+  else
+    log "Couldn't extract Fork's icon from Fork.exe"
+  fi
+  rm -f "$ico"
+}
+
+add_shortcut() {
+  case "$FORK_HOME" in
+    *[\"\`\$\\%]* | *$'\n'*)
+      log "Not adding Fork to the app menu: a menu entry can't hold FORK_HOME's characters"
+      return 0 ;;
+  esac
+  link_launcher
+  update_icon
+  mkdir -p "${SHORTCUT%/*}"
+  cat > "$SHORTCUT.part" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Fork
+GenericName=Git Client
+Comment=Fork, the git client, on Wine
+Exec=env "FORK_HOME=$FORK_HOME" "$FORK_HOME/launcher/bin/fork"
+Icon=fork_git_flake
+Terminal=false
+Categories=Development;RevisionControl;
+StartupWMClass=fork.exe
+X-Fork-Home=$FORK_HOME
+EOF
+  if cmp -s "$SHORTCUT.part" "$SHORTCUT"; then rm -f "$SHORTCUT.part"; else mv "$SHORTCUT.part" "$SHORTCUT"; fi
+}
+
 # Wine's dpi: FORK_DPI, else 96 times the scale of KDE's primary output or sway's focused output on
 # Wayland, else Xft.dpi on X11, else 96.
 desktop_dpi() {
@@ -308,8 +375,9 @@ cmd_install() {
   install_wpf_theme
   install_fonts
   install_fork
+  add_shortcut
   wineserver -w
-  log "Done. Start Fork with: fork [repository...]"
+  log "Done. Start Fork from your app menu, or with: fork [repository...]"
 }
 
 cmd_run() {
@@ -320,6 +388,7 @@ cmd_run() {
   install_fonts
   apply_settings
   configure_git
+  if shortcut_is_ours; then add_shortcut; fi
   local args=() arg
   for arg in "$@"; do
     if [ -e "$arg" ]; then args+=("$(winepath -w "$(realpath "$arg")")"); else args+=("$arg"); fi

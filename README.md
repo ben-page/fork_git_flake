@@ -26,6 +26,10 @@ You can also open a repository straight away:
 nix run github:ben-page/fork_git_flake -- ~/src/project
 ```
 
+`install` also adds Fork to your desktop's app menu (KDE, GNOME and the others), so from then on you
+can start it from there. The menu entry runs the version of this flake you started last, and it
+works offline.
+
 Once installed, Fork keeps itself up to date, just as it does on Windows. To stay on a release of
 this flake, use `github:ben-page/fork_git_flake/v0.1.0`.
 
@@ -53,11 +57,12 @@ With `nix run`, put these after `--`, as above. If you install the flake with
 | Command | What it does |
 |---------|--------------|
 | `fork [repository...]` | Start Fork, opening any repositories you name |
-| `fork install` | Set up the Wine prefix and install .NET Framework 4.8, the fonts and Fork |
+| `fork install` | Set up the Wine prefix, install .NET Framework 4.8, the fonts and Fork, and add Fork to your app menu |
 | `fork exec <command...>` | Run a command inside the prefix, such as `regedit`, `winecfg` or `cmd` |
 | `fork kill` | Stop everything running in the prefix |
 
-Everything lives in `~/.local/share/fork-wine`. To uninstall, delete that folder.
+Everything lives in `~/.local/share/fork-wine`, apart from the app menu entry,
+`~/.local/share/applications/fork-wine.desktop`. To uninstall, delete both.
 
 ## Settings
 
@@ -65,7 +70,7 @@ These are environment variables; none of them are required.
 
 | Variable | Default | What it does |
 |----------|---------|--------------|
-| `FORK_HOME` | `~/.local/share/fork-wine` | Where everything lives. The Wine prefix is in `prefix/` inside it |
+| `FORK_HOME` | `~/.local/share/fork-wine` | Where everything lives. The Wine prefix is in `prefix/` inside it. The app menu entry starts the `FORK_HOME` that last ran `fork install` |
 | `FORK_DPI` | your desktop's scale | Wine's DPI. By default it's 96 × the scale of KDE's primary display or sway's focused display on Wayland, and `Xft.dpi` on X11 |
 | `FORK_WAYLAND` | `1` | Use Wine's Wayland driver in a Wayland session. Set it to `0` to use X11 (Xwayland) instead |
 | `FORK_GIT` | | Set it to `bundled` to use the Git for Windows that comes with Fork instead of your own git. Not recommended (see [Git](#git)) |
