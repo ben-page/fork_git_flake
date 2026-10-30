@@ -88,8 +88,6 @@ executable file as modified, and its `core.autocrlf=true` setting rewrites line 
 
 ## Known problems
 
-* After you drag the window by its title bar, the pointer shows a "no" sign and the window ignores
-  drags until you click once.
 * The resize border is narrow. You can only grab it a few pixels inside the window's edge, not
   just outside it as with other windows.
 * Fork's window is drawn in software rather than on the GPU (see below). That's fine for a git
@@ -116,6 +114,10 @@ fixed in its own commit.
   time Fork starts.
 * **On Wayland, the window stops updating after the first frame.** Wine's Wayland driver keeps
   showing a Direct3D surface's first frame, so WPF's hardware rendering is turned off.
+* **The pointer gets stuck after you drag the window.** When the window asks the compositor to move
+  or resize it, the compositor keeps the mouse button's release, so Fork thought the button was
+  still held: it showed a "no" sign and ignored drags until the next click. `patches/wine/` sends
+  Fork the release.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI

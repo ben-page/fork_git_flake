@@ -22,6 +22,7 @@
           ./patches/wine/0002-combase-Implement-RoGetParameterizedTypeInstanceIID.patch
           ./patches/wine/0003-uxtheme-tests-Check-the-color-and-size-names-GetCurr.patch
           ./patches/wine/0004-aero.msstyles-Name-the-color-scheme-NormalColor-like.patch
+          ./patches/wine/0005-winewayland-Release-the-mouse-button-after-starting-.patch
         ];
       });
 
