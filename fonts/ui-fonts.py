@@ -16,9 +16,9 @@ copy in the prefix that carries the same names.
 Both are drawn at SCALE of their size, by a larger unitsPerEm for the same outlines, with the vertical
 metrics scaled to match so the line height stays. At the same point size Inter is about 8% larger
 than Segoe UI (x-height 0.546 em against 0.500, average a-z width 0.536 em against 0.493). Hack's
-TrueType hinting (ttfautohint) is dropped with its signature: changing unitsPerEm would change what the
-hints were made for, and WPF's DirectWrite rendering under Wine draws outlines unhinted anyway. Inter
-carries no glyph hinting.
+TrueType hinting (ttfautohint) is dropped with its signature, as changing unitsPerEm changes the grid
+its hints were made for. Inter's ttfautohint hinting is kept although the same applies to it: Wine's
+DirectWrite runs it, and Inter UI reads noticeably better with it than with FreeType's autohinter.
 
 Inter is licensed under the SIL Open Font License 1.1, which reserves no font names. Hack is licensed
 under the MIT license and, for its Bitstream Vera parts, the Bitstream Vera license, which reserves the
