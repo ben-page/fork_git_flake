@@ -23,6 +23,7 @@
           ./patches/wine/0003-uxtheme-tests-Check-the-color-and-size-names-GetCurr.patch
           ./patches/wine/0004-aero.msstyles-Name-the-color-scheme-NormalColor-like.patch
           ./patches/wine/0005-winewayland-Release-the-mouse-button-after-starting-.patch
+          ./patches/wine/0006-winewayland-Let-resizable-windows-be-resized-from-ju.patch
         ];
       });
 

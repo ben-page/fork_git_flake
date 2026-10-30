@@ -1,0 +1,525 @@
+From c1888359451364f927006069d937563da0053db4 Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 17:05:36 -0500
+Subject: [PATCH 6/6] winewayland: Let resizable windows be resized from just
+ outside their edges.
+
+Server-side decorations, and the client-side decorations of GTK and Qt,
+take resize grabs a few pixels outside a window's edges as well as on
+them. A Wine window can only be resized from inside its own surface, so
+windows that draw their own frame, such as WPF windows using
+WindowChrome, have a resize band only a few pixels wide.
+
+Give resizable toplevels a transparent subsurface below them that reaches
+8 surface units past their edges and takes pointer input only outside the
+window. There the pointer shows resize cursors, through the cursor shape
+protocol, and a press starts a compositor resize. It is left out for
+maximized and fullscreen windows, where it would reach into other
+monitors.
+
+Whether the pointer is over the window or its border is decided from
+where it is, not from which surface the compositor reports it on: after
+a compositor move or resize, KWin keeps the pointer on whichever of the
+window's surfaces it was on until the next click, as its seat never sees
+the button release that ended the operation.
+---
+ dlls/winewayland.drv/wayland_pointer.c | 146 ++++++++++++++++++--
+ dlls/winewayland.drv/wayland_surface.c | 179 +++++++++++++++++++++++++
+ dlls/winewayland.drv/waylanddrv.h      |  24 ++++
+ 3 files changed, 340 insertions(+), 9 deletions(-)
+
+diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
+index 7ffbf53..8b14344 100644
+--- a/dlls/winewayland.drv/wayland_pointer.c
++++ b/dlls/winewayland.drv/wayland_pointer.c
+@@ -122,6 +122,67 @@ static HWND wayland_pointer_get_focused_hwnd(void)
+     return hwnd;
+ }
+ 
++static enum wp_cursor_shape_device_v1_shape resize_edge_to_cursor_shape(uint32_t edge)
++{
++    switch (edge)
++    {
++    case XDG_TOPLEVEL_RESIZE_EDGE_TOP:
++    case XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM:
++        return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_NS_RESIZE;
++    case XDG_TOPLEVEL_RESIZE_EDGE_LEFT:
++    case XDG_TOPLEVEL_RESIZE_EDGE_RIGHT:
++        return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_EW_RESIZE;
++    case XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT:
++    case XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT:
++        return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_NWSE_RESIZE;
++    case XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT:
++    case XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT:
++        return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_NESW_RESIZE;
++    }
++    return WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
++}
++
++/* Called with the pointer mutex held. */
++static void wayland_pointer_set_resize_cursor(uint32_t edge)
++{
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++
++    if (!pointer->wp_cursor_shape_device_v1)
++    {
++        pointer->wp_cursor_shape_device_v1 =
++            wp_cursor_shape_manager_v1_get_pointer(
++                process_wayland.wp_cursor_shape_manager_v1, pointer->wl_pointer);
++        if (!pointer->wp_cursor_shape_device_v1) return;
++    }
++
++    wp_cursor_shape_device_v1_set_shape(pointer->wp_cursor_shape_device_v1,
++                                        pointer->enter_serial,
++                                        resize_edge_to_cursor_shape(edge));
++    wl_display_flush(process_wayland.wl_display);
++}
++
++static void wayland_pointer_start_resize(HWND hwnd, uint32_t serial, uint32_t edge)
++{
++    struct wayland_surface *surface;
++    struct wayland_win_data *data;
++
++    TRACE("hwnd=%p edge=%u\n", hwnd, edge);
++
++    if (!(data = wayland_win_data_get(hwnd))) return;
++
++    pthread_mutex_lock(&process_wayland.seat.mutex);
++    if (process_wayland.seat.wl_seat && (surface = data->wayland_surface) &&
++        wayland_surface_is_toplevel(surface))
++    {
++        xdg_toplevel_resize(surface->xdg_toplevel, process_wayland.seat.wl_seat,
++                            serial, edge);
++        wl_display_flush(process_wayland.wl_display);
++    }
++    pthread_mutex_unlock(&process_wayland.seat.mutex);
++
++    wayland_win_data_release(data);
++}
++
+ static void pointer_handle_motion_internal(wl_fixed_t sx, wl_fixed_t sy)
+ {
+     INPUT input = {0};
+@@ -165,6 +226,53 @@ static void pointer_handle_motion_internal(wl_fixed_t sx, wl_fixed_t sy)
+     NtUserSendHardwareInput(hwnd, SEND_HWMSG_RAWINPUT, &input, 0);
+ }
+ 
++static void wayland_set_cursor(HWND hwnd, HCURSOR hcursor, BOOL use_hcursor);
++
++/* Handles the pointer at a point of the surface it is on. Over the window, the
++ * window gets the input. Over the window's resize border, the window doesn't
++ * see the pointer, which shows a resize cursor instead. */
++static void pointer_handle_position(wl_fixed_t sx, wl_fixed_t sy, BOOL entered)
++{
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++    double x = wl_fixed_to_double(sx), y = wl_fixed_to_double(sy);
++    struct wl_surface *wl_surface;
++    BOOL changed = entered;
++    uint32_t edge;
++    HWND hwnd;
++
++    pthread_mutex_lock(&pointer->mutex);
++    wl_surface = pointer->entered_surface;
++    hwnd = pointer->entered_hwnd;
++    pthread_mutex_unlock(&pointer->mutex);
++
++    if (!hwnd) return;
++
++    edge = wayland_surface_get_resize_edge(hwnd, wl_surface, &x, &y);
++
++    pthread_mutex_lock(&pointer->mutex);
++    if (pointer->entered_surface != wl_surface)
++    {
++        pthread_mutex_unlock(&pointer->mutex);
++        return;
++    }
++    /* Keep the input going to the window until it has seen the buttons it
++     * saw pressed released. */
++    if (pointer->buttons) edge = pointer->resize_edge;
++    if (edge != pointer->resize_edge) changed = TRUE;
++    pointer->resize_edge = edge;
++    pointer->focused_hwnd = edge ? NULL : hwnd;
++    if (edge && changed) wayland_pointer_set_resize_cursor(edge);
++    pthread_mutex_unlock(&pointer->mutex);
++
++    if (edge) return;
++
++    /* The cursor is undefined at every enter, so we set it again with
++     * the latest information we have. */
++    if (changed) wayland_set_cursor(hwnd, NULL, FALSE);
++
++    pointer_handle_motion_internal(wl_fixed_from_double(x), wl_fixed_from_double(y));
++}
++
+ static void pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
+                                   uint32_t time, wl_fixed_t sx, wl_fixed_t sy)
+ {
+@@ -173,11 +281,9 @@ static void pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
+     /* Ignore absolute motion events if in relative mode. */
+     if (pointer->relative_mode) return;
+ 
+-    pointer_handle_motion_internal(sx, sy);
++    pointer_handle_position(sx, sy, FALSE);
+ }
+ 
+-static void wayland_set_cursor(HWND hwnd, HCURSOR hcursor, BOOL use_hcursor);
+-
+ static void pointer_handle_enter(void *data, struct wl_pointer *wl_pointer,
+                                  uint32_t serial, struct wl_surface *wl_surface,
+                                  wl_fixed_t sx, wl_fixed_t sy)
+@@ -195,18 +301,16 @@ static void pointer_handle_enter(void *data, struct wl_pointer *wl_pointer,
+     TRACE("hwnd=%p\n", hwnd);
+ 
+     pthread_mutex_lock(&pointer->mutex);
+-    pointer->focused_hwnd = hwnd;
++    pointer->entered_surface = wl_surface;
++    pointer->entered_hwnd = hwnd;
+     pointer->enter_serial = serial;
++    pointer->resize_edge = 0;
+     pthread_mutex_unlock(&pointer->mutex);
+ 
+-    /* The cursor is undefined at every enter, so we set it again with
+-     * the latest information we have. */
+-    wayland_set_cursor(hwnd, NULL, FALSE);
+-
+     /* Handle the enter as a motion, to account for cases where the
+      * window first appears beneath the pointer and won't get a separate
+      * motion event. */
+-    pointer_handle_motion_internal(sx, sy);
++    pointer_handle_position(sx, sy, TRUE);
+ }
+ 
+ static void pointer_handle_leave(void *data, struct wl_pointer *wl_pointer,
+@@ -223,6 +327,10 @@ static void pointer_handle_leave(void *data, struct wl_pointer *wl_pointer,
+     pthread_mutex_lock(&pointer->mutex);
+     pointer->focused_hwnd = NULL;
+     pointer->enter_serial = 0;
++    pointer->entered_surface = NULL;
++    pointer->entered_hwnd = NULL;
++    pointer->resize_edge = 0;
++    pointer->buttons = 0;
+     pthread_mutex_unlock(&pointer->mutex);
+ }
+ 
+@@ -232,10 +340,25 @@ static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
+ {
+     struct wayland_pointer *pointer = &process_wayland.pointer;
+     INPUT input = {0};
++    uint32_t edge;
+     HWND hwnd;
+ 
+     InterlockedExchange(&process_wayland.input_serial, serial);
+ 
++    pthread_mutex_lock(&pointer->mutex);
++    hwnd = pointer->entered_hwnd;
++    edge = pointer->resize_edge;
++    pthread_mutex_unlock(&pointer->mutex);
++
++    /* On a resize border, a press starts a compositor resize, and the window
++     * doesn't see the buttons. */
++    if (edge)
++    {
++        if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED)
++            wayland_pointer_start_resize(hwnd, serial, edge);
++        return;
++    }
++
+     if (!(hwnd = wayland_pointer_get_focused_hwnd())) return;
+ 
+     input.type = INPUT_MOUSE;
+@@ -263,6 +386,11 @@ static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
+     pthread_mutex_lock(&pointer->mutex);
+     pointer->button_serial = state == WL_POINTER_BUTTON_STATE_PRESSED ?
+                              serial : 0;
++    if (button >= BTN_MOUSE && button < BTN_MOUSE + 32)
++    {
++        if (state == WL_POINTER_BUTTON_STATE_PRESSED) pointer->buttons |= 1u << (button - BTN_MOUSE);
++        else pointer->buttons &= ~(1u << (button - BTN_MOUSE));
++    }
+     pthread_mutex_unlock(&pointer->mutex);
+ 
+     TRACE("hwnd=%p button=%#x state=%u\n", hwnd, button, state);
+diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
+index b32a43f..39e5580 100644
+--- a/dlls/winewayland.drv/wayland_surface.c
++++ b/dlls/winewayland.drv/wayland_surface.c
+@@ -336,6 +336,12 @@ void wayland_surface_destroy(struct wayland_surface *surface)
+         process_wayland.pointer.focused_hwnd = NULL;
+         process_wayland.pointer.enter_serial = 0;
+     }
++    if (process_wayland.pointer.entered_hwnd == surface->hwnd)
++    {
++        process_wayland.pointer.entered_surface = NULL;
++        process_wayland.pointer.entered_hwnd = NULL;
++        process_wayland.pointer.resize_edge = 0;
++    }
+     if (process_wayland.pointer.constraint_hwnd == surface->hwnd)
+         wayland_pointer_clear_constraint();
+     pthread_mutex_unlock(&process_wayland.pointer.mutex);
+@@ -499,6 +505,73 @@ err:
+     ERR("Failed to assign subsurface role to wayland surface\n");
+ }
+ 
++/* How far past its edges a resizable window can be resized from, and how far
++ * along its edges from a corner it resizes from the corner, in surface
++ * coordinates. */
++#define RESIZE_BORDER_SIZE 8
++#define RESIZE_CORNER_SIZE 16
++
++/**********************************************************************
++ *          wayland_resize_border_destroy
++ */
++static void wayland_resize_border_destroy(struct wayland_resize_border *border)
++{
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++
++    pthread_mutex_lock(&pointer->mutex);
++    if (border->wl_surface && pointer->entered_surface == border->wl_surface)
++    {
++        pointer->focused_hwnd = NULL;
++        pointer->entered_surface = NULL;
++        pointer->entered_hwnd = NULL;
++        pointer->resize_edge = 0;
++    }
++    pthread_mutex_unlock(&pointer->mutex);
++
++    if (border->wp_viewport) wp_viewport_destroy(border->wp_viewport);
++    if (border->wl_subsurface) wl_subsurface_destroy(border->wl_subsurface);
++    if (border->wl_surface) wl_surface_destroy(border->wl_surface);
++    if (border->shm_buffer) wayland_shm_buffer_unref(border->shm_buffer);
++    free(border);
++}
++
++/**********************************************************************
++ *          wayland_resize_border_create
++ */
++static struct wayland_resize_border *wayland_resize_border_create(struct wayland_surface *surface)
++{
++    struct wayland_resize_border *border;
++
++    if (!(border = calloc(1, sizeof(*border)))) goto err;
++
++    border->wl_surface = wl_compositor_create_surface(process_wayland.wl_compositor);
++    if (!border->wl_surface) goto err;
++    /* Pointer events on the border are for the window. */
++    wl_surface_set_user_data(border->wl_surface, surface->hwnd);
++
++    border->wl_subsurface = wl_subcompositor_get_subsurface(process_wayland.wl_subcompositor,
++                                                            border->wl_surface,
++                                                            surface->wl_surface);
++    if (!border->wl_subsurface) goto err;
++    wl_subsurface_place_below(border->wl_subsurface, surface->wl_surface);
++
++    border->wp_viewport = wp_viewporter_get_viewport(process_wayland.wp_viewporter,
++                                                     border->wl_surface);
++    if (!border->wp_viewport) goto err;
++
++    /* A transparent pixel, scaled to the size of the border. */
++    border->shm_buffer = wayland_shm_buffer_create(1, 1, WL_SHM_FORMAT_ARGB8888);
++    if (!border->shm_buffer) goto err;
++    wl_surface_attach(border->wl_surface, border->shm_buffer->wl_buffer, 0, 0);
++
++    return border;
++
++err:
++    ERR("Failed to create the resize border of hwnd=%p\n", surface->hwnd);
++    if (border) wayland_resize_border_destroy(border);
++    return NULL;
++}
++
+ /**********************************************************************
+  *          wayland_surface_clear_role
+  *
+@@ -524,6 +597,12 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
+         break;
+ 
+     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
++        if (surface->resize_border)
++        {
++            wayland_resize_border_destroy(surface->resize_border);
++            surface->resize_border = NULL;
++        }
++
+         if (surface->xdg_toplevel_icon)
+         {
+             xdg_toplevel_icon_manager_v1_set_icon(
+@@ -877,6 +956,62 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
+     wayland_win_data_release(owner_data);
+ }
+ 
++/**********************************************************************
++ *          wayland_surface_reconfigure_resize_border
++ *
++ * Gives a resizable toplevel a border reaching past its edges, so that, as
++ * with server-side decorations, it can be resized from just outside them.
++ * The border is transparent and only takes pointer input, which starts
++ * compositor resizes (see wayland_pointer.c).
++ */
++static void wayland_surface_reconfigure_resize_border(struct wayland_surface *surface,
++                                                      int width, int height)
++{
++    struct wayland_resize_border *border = surface->resize_border;
++    struct wl_region *region;
++    int size = RESIZE_BORDER_SIZE;
++
++    /* Resize cursors need the cursor shape protocol. A maximized or
++     * fullscreen window's border would reach into other monitors. */
++    if (!surface->window.resizeable || !process_wayland.wp_cursor_shape_manager_v1 ||
++        ((surface->window.state | surface->current.state) &
++         (WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED | WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN)) ||
++        width <= 0 || height <= 0)
++    {
++        if (border)
++        {
++            wayland_resize_border_destroy(border);
++            surface->resize_border = NULL;
++        }
++        return;
++    }
++
++    if (!border && !(border = surface->resize_border = wayland_resize_border_create(surface)))
++        return;
++    if (border->width == width && border->height == height) return;
++
++    TRACE("hwnd=%p size=%dx%d\n", surface->hwnd, width, height);
++
++    wl_subsurface_set_position(border->wl_subsurface, -size, -size);
++    wp_viewport_set_destination(border->wp_viewport, width + 2 * size, height + 2 * size);
++
++    /* Only take input outside the window, in case the window lets input
++     * through somewhere. */
++    if ((region = wl_compositor_create_region(process_wayland.wl_compositor)))
++    {
++        wl_region_add(region, 0, 0, width + 2 * size, height + 2 * size);
++        wl_region_subtract(region, size, size, width, height);
++        wl_surface_set_input_region(border->wl_surface, region);
++        wl_region_destroy(region);
++    }
++
++    /* Applied with the window's next commit. */
++    wl_surface_commit(border->wl_surface);
++
++    border->width = width;
++    border->height = height;
++}
++
+ /**********************************************************************
+  *          wayland_surface_reconfigure
+  *
+@@ -900,6 +1035,8 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface)
+     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
+         if (!surface->xdg_surface) break; /* surface role has been cleared */
+         if (!wayland_surface_reconfigure_xdg(surface, rect)) return FALSE;
++        wayland_surface_reconfigure_resize_border(surface, rect.right - rect.left,
++                                                  rect.bottom - rect.top);
+         break;
+     case WAYLAND_SURFACE_ROLE_SUBSURFACE:
+         if (!surface->wl_subsurface) break; /* surface role has been cleared */
+@@ -912,6 +1049,48 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface)
+     return TRUE;
+ }
+ 
++/**********************************************************************
++ *          wayland_surface_get_resize_edge
++ *
++ * Maps a point on a window's surface or on its resize border to the window
++ * surface's coordinates, and returns the edges a press there resizes: none
++ * over the window. A compositor can keep the pointer on either surface while
++ * it is over the other, during implicit grabs for example, so where the point
++ * is counts, not which surface it is on.
++ */
++uint32_t wayland_surface_get_resize_edge(HWND hwnd, struct wl_surface *wl_surface,
++                                         double *x, double *y)
++{
++    struct wayland_resize_border *border;
++    struct wayland_win_data *data;
++    uint32_t edge = XDG_TOPLEVEL_RESIZE_EDGE_NONE;
++    int size = RESIZE_BORDER_SIZE, corner = RESIZE_CORNER_SIZE;
++
++    if (!(data = wayland_win_data_get(hwnd))) return edge;
++
++    if (data->wayland_surface && (border = data->wayland_surface->resize_border))
++    {
++        if (wl_surface == border->wl_surface)
++        {
++            *x -= size;
++            *y -= size;
++        }
++
++        /* On the border: outside the window, but not beyond the border. */
++        if ((*x < 0 || *y < 0 || *x >= border->width || *y >= border->height) &&
++            *x >= -size && *y >= -size && *x < border->width + size && *y < border->height + size)
++        {
++            if (*y < corner) edge |= XDG_TOPLEVEL_RESIZE_EDGE_TOP;
++            else if (*y >= border->height - corner) edge |= XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM;
++            if (*x < corner) edge |= XDG_TOPLEVEL_RESIZE_EDGE_LEFT;
++            else if (*x >= border->width - corner) edge |= XDG_TOPLEVEL_RESIZE_EDGE_RIGHT;
++        }
++    }
++
++    wayland_win_data_release(data);
++    return edge;
++}
++
+ /**********************************************************************
+  *          wayland_shm_buffer_ref
+  *
+diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
+index f2bdd70..ccb4b03 100644
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -118,6 +118,15 @@ struct wayland_pointer
+     BOOL pending_warp;
+     uint32_t enter_serial;
+     uint32_t button_serial;
++    /* The surface the pointer is on, a window's or its resize border, and
++     * the window. */
++    struct wl_surface *entered_surface;
++    HWND entered_hwnd;
++    /* The edges a press resizes while the pointer is on a resize border,
++     * where the window doesn't see it; 0 while it is over the window. */
++    uint32_t resize_edge;
++    /* The buttons the window has seen pressed, by bit from BTN_MOUSE. */
++    uint32_t buttons;
+     struct wayland_cursor cursor;
+     double accum_x;
+     double accum_y;
+@@ -276,6 +285,18 @@ struct wayland_shm_buffer
+     HRGN damage_region;
+ };
+ 
++/* An input-only surface below a resizable toplevel, reaching past its edges,
++ * so that the window can be resized from just outside them. */
++struct wayland_resize_border
++{
++    struct wl_surface *wl_surface;
++    struct wl_subsurface *wl_subsurface;
++    struct wp_viewport *wp_viewport;
++    struct wayland_shm_buffer *shm_buffer;
++    /* The size of the window it goes around, in surface coordinates. */
++    int width, height;
++};
++
+ struct wayland_surface
+ {
+     HWND hwnd;
+@@ -302,6 +323,7 @@ struct wayland_surface
+         };
+     };
+     struct wp_alpha_modifier_surface_v1 *wp_alpha_modifier_surface_v1;
++    struct wayland_resize_border *resize_border;
+ 
+     struct wayland_surface_config pending, requested, processing, current;
+     BOOL resizing;
+@@ -353,6 +375,8 @@ void wayland_surface_set_title(struct wayland_surface *surface, LPCWSTR title);
+ void wayland_surface_assign_icon(struct wayland_surface *surface);
+ void wayland_surface_set_icon_buffer(struct wayland_surface *surface, UINT type, const ICONINFO *ii);
+ void wayland_surface_set_opacity(struct wayland_surface *surface, BYTE alpha, UINT flags);
++uint32_t wayland_surface_get_resize_edge(HWND hwnd, struct wl_surface *wl_surface,
++                                         double *x, double *y);
+ 
+ static inline BOOL wayland_surface_is_toplevel(struct wayland_surface *surface)
+ {
+-- 
+2.56.0
+

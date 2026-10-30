@@ -88,8 +88,6 @@ executable file as modified, and its `core.autocrlf=true` setting rewrites line 
 
 ## Known problems
 
-* The resize border is narrow. You can only grab it a few pixels inside the window's edge, not
-  just outside it as with other windows.
 * Fork's window is drawn in software rather than on the GPU (see below). That's fine for a git
   client.
 * Multiple monitors work, but only monitors with the same scale have been tested.
@@ -118,6 +116,9 @@ fixed in its own commit.
   or resize it, the compositor keeps the mouse button's release, so Fork thought the button was
   still held: it showed a "no" sign and ignored drags until the next click. `patches/wine/` sends
   Fork the release.
+* **The window is hard to resize.** Fork draws its own frame, so you could only grab its edge a few
+  pixels inside the window. `patches/wine/` adds an invisible border just outside the window's
+  edges, like other windows have, where you can grab it.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI
