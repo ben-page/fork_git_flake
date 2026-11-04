@@ -1,0 +1,113 @@
+From 3a8b8b453fd1d20d35e2807d0d660da148b3441b Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 12:04:46 -0600
+Subject: [PATCH] winewayland: Scroll with touchpads.
+
+Touchpads scroll with continuous axis events only, from the finger or
+continuous axis source, and the driver ignored them: only wheels, which
+also send discrete steps, scrolled.
+
+Send a wheel step for every 15 units of continuous scrolling, what
+libinput reports for a wheel step, keeping the remainder until the
+fingers leave the touchpad or the direction changes. Steps of
+WHEEL_DELTA rather than smaller deltas, because many applications
+scroll a fixed amount for each wheel message whatever its delta.
+---
+ dlls/winewayland.drv/wayland_pointer.c | 39 ++++++++++++++++++++++++++
+ dlls/winewayland.drv/waylanddrv.h      |  4 +++
+ 2 files changed, 43 insertions(+)
+
+diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
+index 8b14344..3666663 100644
+--- a/dlls/winewayland.drv/wayland_pointer.c
++++ b/dlls/winewayland.drv/wayland_pointer.c
+@@ -332,6 +332,8 @@ static void pointer_handle_leave(void *data, struct wl_pointer *wl_pointer,
+     pointer->resize_edge = 0;
+     pointer->buttons = 0;
+     pthread_mutex_unlock(&pointer->mutex);
++
++    pointer->axis_accum[0] = pointer->axis_accum[1] = 0;
+ }
+ 
+ static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
+@@ -398,25 +400,62 @@ static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
+     NtUserSendHardwareInput(hwnd, SEND_HWMSG_RAWINPUT, &input, 0);
+ }
+ 
++static void pointer_handle_axis_value120(void *data, struct wl_pointer *wl_pointer,
++                                         uint32_t axis, int32_t value120);
++
+ static void pointer_handle_axis(void *data, struct wl_pointer *wl_pointer,
+                                 uint32_t time, uint32_t axis, wl_fixed_t value)
+ {
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++    double *accum, delta;
++
++    /* Wheels also send steps, which are handled on their own. Touchpads only
++     * send continuous scrolling: send a wheel step for every 15 units of it,
++     * what libinput reports for a wheel step. Many applications scroll a
++     * fixed amount for each wheel message, whatever its size, so smaller
++     * steps would scroll them far too fast. */
++    if (pointer->axis_source != WL_POINTER_AXIS_SOURCE_FINGER &&
++        pointer->axis_source != WL_POINTER_AXIS_SOURCE_CONTINUOUS)
++        return;
++    if (axis >= ARRAY_SIZE(pointer->axis_accum)) return;
++
++    accum = &pointer->axis_accum[axis];
++    if (!(delta = wl_fixed_to_double(value) * WHEEL_DELTA / 15)) return;
++
++    TRACE("axis=%u value=%.2f accum=%.2f\n", axis, wl_fixed_to_double(value), *accum);
++
++    /* Start over when the direction changes. */
++    if ((*accum < 0) != (delta < 0)) *accum = 0;
++    *accum += delta;
++
++    for (; *accum >= WHEEL_DELTA; *accum -= WHEEL_DELTA)
++        pointer_handle_axis_value120(data, wl_pointer, axis, WHEEL_DELTA);
++    for (; *accum <= -WHEEL_DELTA; *accum += WHEEL_DELTA)
++        pointer_handle_axis_value120(data, wl_pointer, axis, -WHEEL_DELTA);
+ }
+ 
+ static void pointer_handle_frame(void *data, struct wl_pointer *wl_pointer)
+ {
+     static const INPUT input = { .type = INPUT_MOUSE, .mi.dwFlags = MOUSEEVENTF_MOVE_NOCOALESCE };
+     NtUserSendHardwareInput(NULL, SEND_HWMSG_RAWINPUT, &input, 0); /* flush win32u accumulated motion */
++
++    /* The source, if any, is sent again with each frame's scrolling. */
++    process_wayland.pointer.axis_source = WL_POINTER_AXIS_SOURCE_WHEEL;
+ }
+ 
+ static void pointer_handle_axis_source(void *data, struct wl_pointer *wl_pointer,
+                                        uint32_t axis_source)
+ {
++    process_wayland.pointer.axis_source = axis_source;
+ }
+ 
+ static void pointer_handle_axis_stop(void *data, struct wl_pointer *wl_pointer,
+                                      uint32_t time, uint32_t axis)
+ {
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++
++    /* The fingers left the touchpad. */
++    if (axis < ARRAY_SIZE(pointer->axis_accum)) pointer->axis_accum[axis] = 0;
+ }
+ 
+ static void pointer_handle_axis_value120(void *data, struct wl_pointer *wl_pointer,
+diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
+index ccb4b03..cb7d0f7 100644
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -127,6 +127,10 @@ struct wayland_pointer
+     uint32_t resize_edge;
+     /* The buttons the window has seen pressed, by bit from BTN_MOUSE. */
+     uint32_t buttons;
++    /* The source of the current frame's scrolling, and the continuous
++     * scrolling not yet sent as wheel steps, in WHEEL_DELTA units. */
++    uint32_t axis_source;
++    double axis_accum[2];
+     struct wayland_cursor cursor;
+     double accum_x;
+     double accum_y;
+-- 
+2.56.0
+

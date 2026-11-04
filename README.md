@@ -127,6 +127,9 @@ fixed in its own commit.
 * **The window is hard to resize.** Fork draws its own frame, so you could only grab its edge a few
   pixels inside the window. `patches/wine/` adds an invisible border just outside the window's
   edges, like other windows have, where you can grab it.
+* **Two-finger scrolling on a touchpad does nothing.** Wine's Wayland driver only scrolled for mouse
+  wheels. `patches/wine/` turns touchpad scrolling into wheel steps, about one for each wheel
+  click's worth of finger movement.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI

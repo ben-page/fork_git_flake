@@ -25,6 +25,7 @@
           ./patches/wine/0005-winewayland-Release-the-mouse-button-after-starting-.patch
           ./patches/wine/0006-winewayland-Let-resizable-windows-be-resized-from-ju.patch
           ./patches/wine/0007-dwrite-Reuse-a-face-s-FreeType-sizes-instead-of-crea.patch
+          ./patches/wine/0008-winewayland-Scroll-with-touchpads.patch
         ];
       });
 
