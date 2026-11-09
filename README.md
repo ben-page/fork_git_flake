@@ -130,6 +130,12 @@ fixed in its own commit.
 * **Two-finger scrolling on a touchpad does nothing.** Wine's Wayland driver only scrolled for mouse
   wheels. `patches/wine/` turns touchpad scrolling into wheel steps, about one for each wheel
   click's worth of finger movement.
+* **On a portrait monitor, a tall window is stretched instead of redrawn.** Wine's Wayland driver
+  ignored a display's rotation, so it took a portrait monitor for a landscape one and gave a window
+  taller than the monitor's width a drawing buffer shorter than the window. The compositor stretched
+  that buffer to fill the window, and clicks landed on the real layout rather than on what you saw.
+  `patches/wine/` carries Wine's pending fix (merge request 8647), which swaps a rotated display's
+  width and height.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI

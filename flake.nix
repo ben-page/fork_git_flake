@@ -26,6 +26,7 @@
           ./patches/wine/0006-winewayland-Let-resizable-windows-be-resized-from-ju.patch
           ./patches/wine/0007-dwrite-Reuse-a-face-s-FreeType-sizes-instead-of-crea.patch
           ./patches/wine/0008-winewayland-Scroll-with-touchpads.patch
+          ./patches/wine/0009-winewayland-Implement-support-for-rotated-displays.patch
         ];
       });
 
