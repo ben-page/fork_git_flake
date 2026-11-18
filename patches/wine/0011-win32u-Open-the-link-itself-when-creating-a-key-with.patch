@@ -1,0 +1,46 @@
+From 72c1edcf728fbdc506e3e1511bb4d8be331256d2 Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 14:07:19 -0600
+Subject: [PATCH 11/12] win32u: Open the link itself when creating a key with
+ REG_OPTION_OPEN_LINK.
+
+NtCreateKey ignores REG_OPTION_OPEN_LINK and follows an existing link
+unless OBJ_OPENLINK is set, which RegCreateKeyEx does for it, but
+reg_create_key() didn't. write_source_to_registry() relies on it to
+point the display source links at the current sources: it wrote the new
+SymbolicLinkValue into the old target instead, so the links kept
+pointing at the first sources ever added.
+
+When outputs came back under new names, as after a hotplug, a source
+read back from the registry was linked to a stale source key, its
+monitor was left without a source and reported at the default
+(0,0)-(1024,768) as a primary monitor.
+---
+ dlls/win32u/font.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/font.c b/dlls/win32u/font.c
+index 97936e93..26546c78 100644
+--- a/dlls/win32u/font.c
++++ b/dlls/win32u/font.c
+@@ -539,7 +539,8 @@ HKEY reg_create_key( HKEY root, const WCHAR *name, ULONG name_len,
+     attr.Length = sizeof(attr);
+     attr.RootDirectory = root;
+     attr.ObjectName = &nameW;
+-    attr.Attributes = 0;
++    /* like RegCreateKeyEx, NtCreateKey only opens the link itself with OBJ_OPENLINK */
++    attr.Attributes = (options & REG_OPTION_OPEN_LINK) ? OBJ_OPENLINK : 0;
+     attr.SecurityDescriptor = NULL;
+     attr.SecurityQualityOfService = NULL;
+ 
+@@ -560,6 +561,7 @@ HKEY reg_create_key( HKEY root, const WCHAR *name, ULONG name_len,
+         {
+             unsigned int subkey_options = options;
+             if (i < len) subkey_options &= ~(REG_OPTION_CREATE_LINK | REG_OPTION_OPEN_LINK);
++            attr.Attributes = (subkey_options & REG_OPTION_OPEN_LINK) ? OBJ_OPENLINK : 0;
+             nameW.Buffer = (WCHAR *)name + pos;
+             nameW.Length = (i - pos) * sizeof(WCHAR);
+             status = NtCreateKey( &ret, MAXIMUM_ALLOWED, &attr, 0, NULL, subkey_options, disposition );
+-- 
+2.56.0
+

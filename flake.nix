@@ -28,6 +28,7 @@
           ./patches/wine/0008-winewayland-Scroll-with-touchpads.patch
           ./patches/wine/0009-winewayland-Implement-support-for-rotated-displays.patch
           ./patches/wine/0010-win32u-Keep-the-host-position-of-displays-that-repor.patch
+          ./patches/wine/0011-win32u-Open-the-link-itself-when-creating-a-key-with.patch
         ];
       });
 

@@ -139,6 +139,10 @@ fixed in its own commit.
 * **Wine stacks all your monitors in one place.** KWin reports a single display mode for each
   monitor, and Wine then dropped the monitor's position, so it saw every monitor in the top-left
   corner, on top of the others. `patches/wine/` keeps the positions.
+* **After waking up or reconnecting a dock, Wine loses a monitor.** Wine keeps a registry link
+  from each display to its settings, and never pointed those links at the new settings when
+  monitors came back under new names. One monitor was left without settings and Wine reported a
+  1024x768 monitor in the top-left corner instead. `patches/wine/` updates the links.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI
