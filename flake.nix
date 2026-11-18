@@ -27,6 +27,7 @@
           ./patches/wine/0007-dwrite-Reuse-a-face-s-FreeType-sizes-instead-of-crea.patch
           ./patches/wine/0008-winewayland-Scroll-with-touchpads.patch
           ./patches/wine/0009-winewayland-Implement-support-for-rotated-displays.patch
+          ./patches/wine/0010-win32u-Keep-the-host-position-of-displays-that-repor.patch
         ];
       });
 

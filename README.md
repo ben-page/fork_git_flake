@@ -136,6 +136,9 @@ fixed in its own commit.
   that buffer to fill the window, and clicks landed on the real layout rather than on what you saw.
   `patches/wine/` carries Wine's pending fix (merge request 8647), which swaps a rotated display's
   width and height.
+* **Wine stacks all your monitors in one place.** KWin reports a single display mode for each
+  monitor, and Wine then dropped the monitor's position, so it saw every monitor in the top-left
+  corner, on top of the others. `patches/wine/` keeps the positions.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI

@@ -1,0 +1,69 @@
+From 825b54526c668b12c68f86dcd6558fee28f709a0 Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 13:37:21 -0600
+Subject: [PATCH 10/12] win32u: Keep the host position of displays that report
+ a single mode.
+
+When a driver reports a single host mode for a display, add_modes()
+emulates the other modes and builds the physical mode from that host
+mode, which has no position. The position the driver gave for the
+current mode was lost, so every such display was placed at (0,0).
+winewayland reports a single mode for each output on KWin, so all
+outputs overlapped.
+
+Take the position from the current mode, and reset the emulated mode
+when the host mode it was set on changes, so a display that moves or
+changes resolution after a hotplug isn't kept at its old place.
+---
+ dlls/win32u/sysparams.c | 21 ++++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index 7095e41a..7156474f 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -511,6 +511,14 @@ static BOOL is_detached_mode( const DEVMODEW *mode )
+            mode->dmPelsHeight == 0;
+ }
+ 
++static BOOL is_same_host_mode( const DEVMODEW *a, const DEVMODEW *b )
++{
++    if (a->dmPelsWidth != b->dmPelsWidth || a->dmPelsHeight != b->dmPelsHeight) return FALSE;
++    if ((a->dmFields & DM_POSITION) != (b->dmFields & DM_POSITION)) return FALSE;
++    if (!(a->dmFields & DM_POSITION)) return TRUE;
++    return a->dmPosition.x == b->dmPosition.x && a->dmPosition.y == b->dmPosition.y;
++}
++
+ static BOOL write_source_mode( HKEY hkey, UINT index, const DEVMODEW *mode )
+ {
+     WCHAR bufferW[MAX_PATH] = {0};
+@@ -2219,6 +2227,12 @@ static void add_modes( const DEVMODEW *current, UINT host_modes_count, const DEV
+     }
+ 
+     physical = modes_count == 1 ? *modes : *current;
++    if (current->dmFields & DM_POSITION)
++    {
++        /* host modes don't carry a position, the current mode does */
++        physical.dmFields |= DM_POSITION;
++        physical.dmPosition = current->dmPosition;
++    }
+     if (ctx->is_primary) ctx->primary = *current;
+ 
+     detached.dmPelsWidth = 0;
+@@ -2232,7 +2246,12 @@ static void add_modes( const DEVMODEW *current, UINT host_modes_count, const DEV
+     }
+     else
+     {
+-        if (!read_source_mode( source->key, ENUM_CURRENT_SETTINGS, &virtual ) || is_detached_mode( &virtual ))
++        DEVMODEW old_physical;
++
++        /* keep the emulated mode only while the host mode it was set on is unchanged */
++        if (!read_source_mode( source->key, ENUM_CURRENT_SETTINGS, &virtual ) || is_detached_mode( &virtual ) ||
++            (read_source_mode( source->key, WINE_ENUM_PHYSICAL_SETTINGS, &old_physical ) &&
++             !is_same_host_mode( &old_physical, &physical )))
+             virtual = physical;
+ 
+         if ((virtual_modes = get_virtual_modes( current, &physical, host_modes, host_modes_count, &virtual_count )))
+-- 
+2.56.0
+
