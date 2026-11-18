@@ -143,6 +143,10 @@ fixed in its own commit.
   from each display to its settings, and never pointed those links at the new settings when
   monitors came back under new names. One monitor was left without settings and Wine reported a
   1024x768 monitor in the top-left corner instead. `patches/wine/` updates the links.
+* **After waking up or reconnecting a dock, clicks only land in a box at the top left, and the
+  pointer can't leave it until you switch windows.** Wine limits the pointer to the screen it
+  knows, and kept the limits it took while it saw only a 1024x768 monitor. `patches/wine/` redoes
+  the limits whenever the monitors change.
 * **The fonts are wrong.** Windows' Segoe UI and Consolas aren't there, so text fell back to Tahoma,
   and bold and semibold text came out regular. Fork now gets Inter in place of Segoe UI and Hack in
   place of Consolas, drawn at 92% of their size to come closer to the Windows fonts, and Segoe UI

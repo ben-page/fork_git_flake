@@ -1,0 +1,60 @@
+From 1f71fb686c0e5cf946ea3d814d9b7abdee9e6822 Mon Sep 17 00:00:00 2001
+From: Ben Page <744035+ben-page@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 13:37:21 -0600
+Subject: [PATCH 12/12] server: Reset an unclipped cursor rectangle when the
+ monitors change.
+
+The clip rectangle of an unclipped cursor is the virtual screen, but it
+was only recomputed when the desktop window was resized or the
+foreground changed. When the monitors changed while the desktop window
+kept its size, as can happen while outputs come and go on resume, the
+cursor stayed confined to an old, smaller virtual screen and winewayland
+confined the pointer to it.
+
+Reset it whenever the virtual screen changes, unless an application set
+its own clip rectangle.
+---
+ server/winstation.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/server/winstation.c b/server/winstation.c
+index e2aad1ed..f705c461 100644
+--- a/server/winstation.c
++++ b/server/winstation.c
+@@ -618,12 +618,17 @@ DECL_HANDLER(set_winstation_monitors)
+ {
+     struct winstation *winstation;
+     struct desktop *desktop;
++    struct rectangle old_rect = {0}, new_rect;
+     unsigned int size = get_req_data_size();
+ 
+     if (!(winstation = (struct winstation *)get_handle_obj( current->process, current->process->winstation,
+                                                            0, &winstation_ops )))
+         return;
+ 
++    if (!list_empty( &winstation->desktops ))
++        get_virtual_screen_rect( LIST_ENTRY( list_head( &winstation->desktops ), struct desktop, entry ),
++                                 &old_rect, 1 );
++
+     if (req->increment || winstation->monitor_count != size / sizeof(*winstation->monitors) ||
+         !winstation->monitors || memcmp( winstation->monitors, get_req_data(), size ))
+         winstation->monitor_serial++;
+@@ -644,6 +649,15 @@ DECL_HANDLER(set_winstation_monitors)
+     if (size && (winstation->monitors = memdup( get_req_data(), size )))
+         winstation->monitor_count = size / sizeof(*winstation->monitors);
+ 
++    /* an unclipped cursor is clipped to the virtual screen, so follow it when the monitors change
++     * even if the desktop window keeps its size */
++    LIST_FOR_EACH_ENTRY(desktop, &winstation->desktops, struct desktop, entry)
++    {
++        get_virtual_screen_rect( desktop, &new_rect, 1 );
++        if (!(desktop->clip_flags & SET_CURSOR_CLIP) && memcmp( &old_rect, &new_rect, sizeof(new_rect) ))
++            set_clip_rectangle( desktop, NULL, SET_CURSOR_NOCLIP, 1 );
++    }
++
+     reply->serial = winstation->monitor_serial;
+     release_object( winstation );
+ }
+-- 
+2.56.0
+
